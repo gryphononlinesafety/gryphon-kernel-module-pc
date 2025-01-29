@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2025 Naveen Kumar Gutti <naveen@gryphonconnect.com> GryphonConnect
+ * Copyright (C) 2025 GryphonConnect [ https://gryphonconnect.com/ ]
+ * Author: Naveen Kumar Gutti <naveen@gryphonconnect.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License version 2.1
