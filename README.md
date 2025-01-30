@@ -2,16 +2,14 @@
 
 ![Gryphon Connect][(https://gryphonconnect.com/))
 
-Welcome to the **Gryphon Kernel Module PC** repository! This repository contains a Linux kernel module developed by **[Gryphon Connect](https://gryphonconnect.com/)** to work with Native Integration of Gryphon Software and Gryphon LXC / OCI Containers
+Welcome to the **Gryphon Kernel Module PC** repository! This repository contains a Linux kernel module developed by **[Gryphon Connect](https://gryphonconnect.com/)** to work with Gryphon Software
 
 ## 📌 Overview
 
-This project provides a kernel module that integrates with OpenWRT-based systems or LXC or OCI Containers along side to work with Gryphon Software
+This project provides a kernel module to work with Gryphon Software
 
 ## 🔧 Features
 
-- ✅ **Deep Packet Inspection (DPI) Support** – Provides traffic analysis for better content filtering.
-- ✅ **Secure Firewall Enhancements** – Augments existing firewall rules with kernel-level security.
 - ✅ **Real-Time Monitoring** – Logs and processes network activity directly in the kernel space.
 - ✅ **Custom Netfilter Hooks** – Allows flexible packet filtering and modification.
 
