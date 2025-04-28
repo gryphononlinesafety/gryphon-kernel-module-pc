@@ -16,7 +16,7 @@
 #include "gryphon_buffer_management.h"
 
 static DEFINE_SPINLOCK(gry_rab_lock);
-static DEFINE_HASHTABLE(fragment_table, 16);
+static DEFINE_HASHTABLE(fragment_table, 8);
 static struct timer_list rab_cleanup_timer;
 
 static inline u32 gry_fragment_tuple_calculate_hash(const struct gry_fragment_tuple_t *key){
