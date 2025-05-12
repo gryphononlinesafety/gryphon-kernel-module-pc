@@ -2851,4 +2851,4 @@ module_exit(parental_control_exit);
 MODULE_AUTHOR("Naveen Kumar Gutti<naveen@gryphonconnect.com>");
 MODULE_DESCRIPTION("Parental control module");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("01.0001.05");
+MODULE_VERSION("01.0001.06");
