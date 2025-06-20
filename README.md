@@ -28,3 +28,8 @@ Before installing, ensure your OpenWRT system has:
 ## 🚀 Installation Guide
 
 Clone the repository into standard OpenWRT framework and enable the package via "make menuconfig" and compile
+
+## Customisation and Compilation Flags
+- ENABLE_GRY_MARK compilation flag is used to enabling the marking of the packets via CFLAGS, enable or disable via Makefile
+- GRY_MARK_VALUE in the gryphon_dpi.c file is used to mark the skb with value 0x09, if you want to customise this to your platform change it to a valid hex value
+

@@ -2,6 +2,8 @@ obj-m+=gryphon.o
 
 gryphon-objs+=gryphon_dpi.o gryphon_buffer_management.o
 
+CFLAGS_gryphon_dpi.o += -DENABLE_GRY_MARK
+
 ifeq ($(GRY_DEBUG),y)
 CFLAGS_gryphon_dpi.o += -DDEBUG
 CFLAGS_gryphon_buffer_management.o += -DDEBUG

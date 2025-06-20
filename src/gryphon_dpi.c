@@ -34,7 +34,8 @@
 #include <linux/proc_fs.h>
 #include <linux/string.h>
 #include <linux/hashtable.h>
-
+#include <net/netfilter/nf_conntrack.h>
+#include <net/netfilter/nf_conntrack_core.h>
 #include "gryphon_buffer_management.h"
 
 #define PORTSCAN_ENABLED 1
@@ -108,6 +109,10 @@
 #define QUIC_LPT_HANDSHAKE  0x2
 #define QUIC_LPT_RETRY      0x3
 
+#if ENABLE_GRY_MARK
+// GRYPHON PACKET MARK VALUE
+#define GRY_MARK_VALUE 0x09
+#endif
 
 // HASH TABLES
 static DEFINE_HASHTABLE(labnf_redirect_hash, 8);
@@ -283,18 +288,10 @@ static struct nla_policy labpm_genl_policy[__LABPM_ATTR_MAX + 1]  = {
 	[LABPM_ATTR_UNSAFE_IP] = {.type = NLA_NUL_STRING},
 	[LABPM_ATTR_MUSIC_IP] = {.type = NLA_UNSPEC, .len = sizeof(musicappiplist_t)},
 	[LABPM_ATTR_INET_BEDTIME_PAUSE] = {.type = NLA_NUL_STRING},
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
-	[LABPM_ATTR_FRAGMENT_TUPLE] = {.type = NLA_EXACT_LEN, .len = sizeof(struct gry_fragment_tuple_payload_t)},
-#else
 	[LABPM_ATTR_FRAGMENT_TUPLE] = {.len = sizeof(struct gry_fragment_tuple_payload_t)},
-#endif
 	[LABPM_ATTR_APPLE_PRIV] = {.type = NLA_U32},
 	[LABPM_ATTR_CLOUD_SERVER] = {.type = NLA_U32},
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
-	[LABPM_ATTR_APPLE_PRIV_MAC] = {.type = NLA_EXACT_LEN, .len = sizeof(apple_priv_mac_t)}
-#else
 	[LABPM_ATTR_APPLE_PRIV_MAC] = {.len = sizeof(apple_priv_mac_t)}
-#endif
 };
 
 // create the labpm_genl_family structure
@@ -1824,6 +1821,19 @@ static int apple_priv_browse_mac_list(struct sk_buff *skb, struct genl_info *inf
 	return 0;
 }
 
+#if ENABLE_GRY_MARK
+static void gry_mark_skb(struct sk_buff *skb){
+	struct nf_conn *ct;
+	enum ip_conntrack_info ctinfo;
+
+	ct = nf_ct_get(skb, &ctinfo);
+	if(ct){
+		ct->mark = GRY_MARK_VALUE;
+	}
+	skb->mark = GRY_MARK_VALUE;
+}
+#endif
+
 static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buff *skb, const struct nf_hook_state *state){
 	struct ethhdr *eth_h = NULL;
 	struct iphdr *iph = NULL;
@@ -1836,21 +1846,27 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 	int canSendResult = 0;
 	int rabExists = 0;
 
+	if(!skb)
+		return NF_ACCEPT;
+
 	// Application is not yet registered, so return without processing skb
 	if(!info){
 		return NF_ACCEPT;
 	}
 
-	if(!skb)
-		return NF_ACCEPT;
-
 	// check the interface to listen
 	if((skb->dev == NULL) || (strncmp(skb->dev->name, "br-", 3) != 0)){
+#if ENABLE_GRY_MARK
+		gry_mark_skb(skb);
+#endif
 		return NF_ACCEPT;
 	}
 	
 	eth_h = eth_hdr(skb);
 	if(!eth_h){
+#if ENABLE_GRY_MARK
+		gry_mark_skb(skb);
+#endif
 		return NF_ACCEPT;
 	}
 
@@ -1858,14 +1874,23 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 
 	iph = (struct iphdr*)skb_network_header(skb);
 	if(!iph){
+#if ENABLE_GRY_MARK
+		gry_mark_skb(skb);
+#endif
 		return NF_ACCEPT;
 	}
 
 	if (iph->protocol != IPPROTO_UDP && iph->protocol != IPPROTO_TCP){
+#if ENABLE_GRY_MARK
+		gry_mark_skb(skb);
+#endif
 		return NF_ACCEPT;
 	}
 
 	if(CLIENT_IP(iph->daddr)){
+#if ENABLE_GRY_MARK
+		gry_mark_skb(skb);
+#endif
 		return NF_ACCEPT;
 	}
 	// If apple private mask ips, then drop the connections
@@ -1877,7 +1902,10 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 
 	// If cloud server IP, then accept the connection.
 	if(is_cloud_server_ip_allowed_list(iph->saddr, iph->daddr)){
-			return NF_ACCEPT;
+#if ENABLE_GRY_MARK
+		gry_mark_skb(skb);
+#endif
+		return NF_ACCEPT;
 	}
 
 	// clear the fragmented tuple memory
@@ -1889,17 +1917,26 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		int header = 0;
 
 		if(udp_info == NULL){
+#if ENABLE_GRY_MARK
+			gry_mark_skb(skb);
+#endif
 			return NF_ACCEPT;
 		}
 
 		udph = (struct udphdr*)skb_transport_header(skb);
 		header = iph->ihl * 4 + sizeof (struct udphdr);
 		if(!udph){
+#if ENABLE_GRY_MARK
+			gry_mark_skb(skb);
+#endif
 			return NF_ACCEPT;
 		}
 		src_port = ntohs(udph->source);
 		dest_port = ntohs(udph->dest);
 		if(dest_port == 22 || dest_port == 53 || dest_port == 3000 || dest_port == 67 || dest_port == 123 || dest_port == 1900 || src_port == dest_port){
+#if ENABLE_GRY_MARK
+			gry_mark_skb(skb);
+#endif
 			return NF_ACCEPT;
 		}
 
@@ -1918,6 +1955,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 					if(!device_paused){
 						// if safe search ip and device is not paused
 						read_unlock_bh(&ss_rwlock);
+#if ENABLE_GRY_MARK
+						gry_mark_skb(skb);
+#endif
 						return NF_ACCEPT;
 					} else {
 						read_unlock_bh(&ss_rwlock);
@@ -1931,10 +1971,16 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			/* Check if it is a unsafe IP, and if mac is safe, allow */
 			if(labnf_is_unsafe_ip(iph->daddr)) {
 				if((strncmp(skb->dev->name, "homebound", strlen("homebound")) == 0)){ // homebound allow
+#if ENABLE_GRY_MARK
+					gry_mark_skb(skb);
+#endif
 					return NF_ACCEPT;
 				}
 
 				if(labnf_is_safe_mac(mac)) { // Allow if safe mac packet directly without sending lab
+#if ENABLE_GRY_MARK
+					gry_mark_skb(skb);
+#endif
 					return NF_ACCEPT;
 				}	
 			}
@@ -1942,6 +1988,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			/* Check if it is a unsafe IP, and if mac is safe, allow */
 			if(labnf_is_unsafe_youtube_ip(iph->daddr)) {
 				if((strncmp(skb->dev->name, "homebound", strlen("homebound")) == 0)){ // homebound allow
+#if ENABLE_GRY_MARK
+					gry_mark_skb(skb);
+#endif
 					return NF_ACCEPT;
 				}
 				#ifdef SSLPROXY_BUILD
@@ -1950,6 +1999,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 				}
 				#endif
 				if(labnf_is_safe_youtube_mac(mac)){
+#if ENABLE_GRY_MARK
+					gry_mark_skb(skb);
+#endif
 					return NF_ACCEPT;
 				}
 			}
@@ -1969,20 +2021,32 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		bool is_gso = false;
 		tcph = (struct tcphdr*)skb_transport_header(skb);
 		if(!tcph){
+#if ENABLE_GRY_MARK
+			gry_mark_skb(skb);
+#endif
 			return NF_ACCEPT;
 		}
 
 		src_port = ntohs(tcph->source);
 		dest_port = ntohs(tcph->dest);
 		if(dest_port == 22 || dest_port == 53 || dest_port == 3000 || dest_port == 67 || dest_port == 123 || dest_port == 1900 || src_port == dest_port){
+#if ENABLE_GRY_MARK
+			gry_mark_skb(skb);
+#endif
 			return NF_ACCEPT;
 		}
 
 		if(is_handshake_packet(tcph) && ntohs(iph->tot_len) <= 57){
+#if ENABLE_GRY_MARK
+			gry_mark_skb(skb);
+#endif
 			return NF_ACCEPT;
 		}
 
 		if(ntohs(iph->tot_len) <= (iph->ihl * 4 + tcph->doff * 4)){
+#if ENABLE_GRY_MARK
+			gry_mark_skb(skb);
+#endif
 			return NF_ACCEPT;
 		}
 		// Check the pause flag here
@@ -2033,6 +2097,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 					if(!device_paused){
 						// if safe search ip and device is not paused
 						read_unlock_bh(&ss_rwlock);
+#if ENABLE_GRY_MARK
+						gry_mark_skb(skb);
+#endif
 						return NF_ACCEPT;
 					} else {
 						read_unlock_bh(&ss_rwlock);
@@ -2047,6 +2114,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 					return NF_DROP;
 				}
 				if(labnf_is_safe_mac(mac)){
+#if ENABLE_GRY_MARK
+					gry_mark_skb(skb);
+#endif
 					return NF_ACCEPT;
 				}
 			}
@@ -2058,6 +2128,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 					return NF_DROP;
 
 				if((strncmp(skb->dev->name, "homebound", strlen("homebound")) == 0)){ // homebound allow
+#if ENABLE_GRY_MARK
+					gry_mark_skb(skb);
+#endif
 					return NF_ACCEPT;
 				}
 				#ifdef SSLPROXY_BUILD
@@ -2066,6 +2139,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 				}
 				#endif
 				if(labnf_is_safe_youtube_mac(mac)){
+#if ENABLE_GRY_MARK
+					gry_mark_skb(skb);
+#endif
 					return NF_ACCEPT;
 				}
 			}
@@ -2101,6 +2177,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			}
 		}
 	}
+#if ENABLE_GRY_MARK
+	gry_mark_skb(skb);
+#endif
 	return NF_ACCEPT;
 }
 
