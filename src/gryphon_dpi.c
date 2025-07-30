@@ -423,19 +423,19 @@ struct gry_fragment_tuple_t *fragTuple;
 // Initialize the data storage nodes and memset them to 0
 void init_data_storage(void){
 	tcp_special_nodes.node_count = 0;
-	tcp_special_nodes.nodes = kmalloc( NO_OF_DEVICES * sizeof(struct tcp_special_data_t), GFP_KERNEL);
+	tcp_special_nodes.nodes = gry_safe_alloc( NO_OF_DEVICES * sizeof(struct tcp_special_data_t));
 	memset(tcp_special_nodes.nodes, 0, NO_OF_DEVICES * sizeof(struct tcp_special_data_t));
 
 	tcp_special_nodes_buf.node_count = 0;
-	tcp_special_nodes_buf.nodes = kmalloc( NO_OF_DEVICES * sizeof(struct tcp_special_data_t), GFP_KERNEL);
+	tcp_special_nodes_buf.nodes = gry_safe_alloc( NO_OF_DEVICES * sizeof(struct tcp_special_data_t));
 	memset(tcp_special_nodes_buf.nodes, 0, NO_OF_DEVICES * sizeof(struct tcp_special_data_t));
 
 	tcp_normal_scan.node_count = 0;
-	tcp_normal_scan.nodes = kmalloc( NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t), GFP_KERNEL);
+	tcp_normal_scan.nodes = gry_safe_alloc( NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t));
 	memset(tcp_normal_scan.nodes, 0, NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t));
 
 	tcp_normal_scan_buf.node_count = 0;
-	tcp_normal_scan_buf.nodes = kmalloc( NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t), GFP_KERNEL);
+	tcp_normal_scan_buf.nodes = gry_safe_alloc( NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t));
 	memset(tcp_normal_scan_buf.nodes, 0, NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t));
 
 }
@@ -621,7 +621,7 @@ static inline int quic_draft_version(u32 version)
 static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_recv){
 	printk("GRY_DPI_KERN: labnf_set_labpm_portid: init done\n");
 	write_lock_bh(&genl_rwlock);
-	info = kmalloc(sizeof(struct genl_info), GFP_ATOMIC);
+	info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!info){
 		printk("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid\n");
 		write_unlock_bh(&genl_rwlock);
@@ -639,7 +639,7 @@ static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_re
 static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *info_recv){
 	printk(KERN_INFO "GRY_DPI_KERN: labnf_set_labpm_udp_portid: init done\n");
 	write_lock_bh(&genl_rwlock);
-	udp_info = kmalloc(sizeof(struct genl_info), GFP_ATOMIC);
+	udp_info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!udp_info){
 		printk(KERN_ERR "GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid\n");
 		write_unlock_bh(&genl_rwlock);
@@ -658,7 +658,7 @@ static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *inf
 static int labnf_set_ra_portid(struct sk_buff *skb, struct genl_info *info_recv){
 	printk("GRY_DPI_KERN: labnf_set_ra_portid: init done\n");
 	write_lock_bh(&genl_rwlock);
-	ra_info = kmalloc(sizeof(struct genl_info), GFP_ATOMIC);
+	ra_info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!ra_info){
 		printk("GRY_DPI_KERN: failed to allocate genl_info, labnf_set_ra_portid\n");
 		write_unlock_bh(&genl_rwlock);
@@ -725,7 +725,7 @@ static int labnf_set_inet_pause_unpause(struct sk_buff *skb, struct genl_info *i
 		return 0;
 	}
 	if(attr == LABPM_ATTR_INET_PAUSE || attr == LABPM_ATTR_INET_BEDTIME_PAUSE){
-		peer = kmalloc(sizeof(redirect_), GFP_ATOMIC);
+		peer = gry_safe_alloc(sizeof(redirect_));
 		if(peer == NULL){
 			printk("GRY_DPI_KERN: Failed to allocate memory: LABPM_ATTR_INET_PAUSE, LABPM_ATTR_INET_BEDTIME_PAUSE\n");
 			return 0;
@@ -859,7 +859,7 @@ static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info 
 	}
 	spin_unlock_bh(&labnf_safe_mac_lock);
 
-	peer = kmalloc(sizeof(safe_mac_ip_), GFP_ATOMIC);
+	peer = gry_safe_alloc(sizeof(safe_mac_ip_));
 	if(!peer){
 		return -ENOMEM;
 	}
@@ -899,7 +899,7 @@ static int labnf_add_ip_to_unsafe_list(struct sk_buff *skb, struct genl_info *in
 	}
 	spin_unlock_bh(&labnf_unsafe_ip_lock);
 	
-	peer = kmalloc(sizeof(safe_mac_ip_), GFP_ATOMIC);
+	peer = gry_safe_alloc(sizeof(safe_mac_ip_));
 	if(peer == NULL){
 		return -ENOMEM;
 	}
@@ -943,7 +943,7 @@ static int labnf_add_ip_to_apc_list(struct sk_buff *skb, struct genl_info *info_
 	}
 	spin_unlock_bh(&labnf_apc_ip_lock);
 
-	peer = kmalloc(sizeof(apc_ip_), GFP_ATOMIC);
+	peer = gry_safe_alloc(sizeof(apc_ip_));
 	if(peer == NULL)
 		return -ENOMEM;
 	memset(peer, 0, sizeof(apc_ip_));
@@ -1005,7 +1005,7 @@ static int labnf_add_del_mac_to_apc_list(struct sk_buff *skb, struct genl_info *
 
 	spin_unlock_bh(&labnf_apc_mac_lock);
 
-	peer = kmalloc(sizeof(apc_mac_ip_), GFP_ATOMIC);
+	peer = gry_safe_alloc(sizeof(apc_mac_ip_));
 	if(peer == NULL)
 		return -ENOMEM;
 	memset(peer, 0, sizeof(apc_mac_ip_));
@@ -1022,7 +1022,7 @@ static int add_mip_into_hash(int ipaddr){
 	int key = HASH(ipaddr);
 	musical_ip_ *peer=NULL;
 
-	peer = kmalloc(sizeof(musical_ip_), GFP_ATOMIC);
+	peer = gry_safe_alloc(sizeof(musical_ip_));
 	if(peer == NULL)
 		return -ENOMEM;
 	memset(peer, 0, sizeof(musical_ip_));
@@ -1205,7 +1205,7 @@ static inline int add_ip_to_unsafe_youtube_list(struct sk_buff *skb, struct genl
 	}
 	spin_unlock_bh(&labnf_unsafe_youtube_ip_lock);
 
-	peer = kmalloc(sizeof(safe_mac_ip_), GFP_ATOMIC);
+	peer = gry_safe_alloc(sizeof(safe_mac_ip_));
 	if(peer == NULL)
 		return -ENOMEM;
 	memset(peer, 0, sizeof(safe_mac_ip_));
@@ -1298,7 +1298,7 @@ static inline int add_del_mac_to_safe_youtube_list(struct sk_buff *skb, struct g
 	}
 	spin_unlock_bh(&labnf_safe_youtube_mac_lock);
 
-	peer = kmalloc(sizeof(safe_mac_ip_), GFP_ATOMIC);
+	peer = gry_safe_alloc(sizeof(safe_mac_ip_));
 	if(peer == NULL)
 		return -ENOMEM;
 	memset(peer, 0, sizeof(safe_mac_ip_));
@@ -1374,7 +1374,7 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 	}
 	write_unlock_bh(&genl_rwlock);
 
-	msg = nlmsg_new(NLMSG_GOODSIZE, GFP_KERNEL);
+	msg = nlmsg_new(NLMSG_GOODSIZE, gry_get_memory_alloc_type());
 	if(!msg){
 		return -1;
 	}
@@ -1697,7 +1697,7 @@ static int cloud_server_allowed_list(struct sk_buff *skb, struct genl_info *info
 		}
 		spin_unlock_bh(&labnf_cloud_server_lock);
 
-		peer = kmalloc(sizeof(cloud_server_ip_), GFP_ATOMIC);
+		peer = gry_safe_alloc(sizeof(cloud_server_ip_));
 		if(peer == NULL)
 			return -1;
 		memset(peer, 0, sizeof(cloud_server_ip_));
@@ -1735,7 +1735,7 @@ static int apple_priv_browse_block_list(struct sk_buff *skb, struct genl_info *i
 		}
 		spin_unlock_bh(&labnf_apple_priv_lock);
 
-		peer = kmalloc(sizeof(apple_priv_ip_), GFP_ATOMIC);
+		peer = gry_safe_alloc(sizeof(apple_priv_ip_));
 		if(peer == NULL)
 			return -1;
 		memset(peer, 0, sizeof(apple_priv_ip_));
@@ -1791,9 +1791,9 @@ static int apple_priv_browse_mac_list(struct sk_buff *skb, struct genl_info *inf
 		}
 		spin_unlock_bh(&labnf_apple_priv_lock);
 		
-		peer = (apple_priv_mac_*)kmalloc(sizeof(apple_priv_mac_), GFP_ATOMIC);
+		peer = (apple_priv_mac_*)gry_safe_alloc(sizeof(apple_priv_mac_));
 		if(peer == NULL){
-			printk(KERN_ERR "GRY_APPLE_PRIV: mac kmalloc failed\n");
+			printk(KERN_ERR "GRY_APPLE_PRIV: mac gry_safe_alloc failed\n");
 			return -1;
 		}
 		memcpy(peer->data.mac, apple_priv_mac->mac, ETH_ALEN);
@@ -2836,7 +2836,7 @@ static int __init parental_control_init(void){
 	printk(KERN_INFO "GRY_DPI_KERN: inserting\n");
 
 	// Initialize the common variable for checking the fragmented tuple
-	fragTuple = kmalloc(sizeof(struct gry_fragment_tuple_t), GFP_KERNEL);
+	fragTuple = gry_safe_alloc(sizeof(struct gry_fragment_tuple_t));
 	if(!fragTuple){
 		printk(KERN_ERR "GRY_DPI_KERN: fragTuple malloc failed\n");
 		return -1;

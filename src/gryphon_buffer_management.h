@@ -82,4 +82,10 @@ void gry_rab_timer_invoke(void);
 
 // function to destory the timer of RAB
 void gry_rab_timer_destroy(void);
+
+// function to allocate safe memory
+void* gry_safe_alloc(size_t size);
+
+// function to return memory allocation type
+int gry_get_memory_alloc_type(void);
 #endif

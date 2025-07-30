@@ -28,7 +28,7 @@ int gry_rab_set_tuple_element(struct gry_fragment_tuple_t *elem) {
 	struct gry_frag_hash_tuple_t *entry;
 
 	hash = gry_fragment_tuple_calculate_hash(elem);
-	entry = (struct gry_frag_hash_tuple_t*)kmalloc(sizeof(struct gry_frag_hash_tuple_t), GFP_KERNEL);
+	entry = (struct gry_frag_hash_tuple_t*)gry_safe_alloc(sizeof(struct gry_frag_hash_tuple_t));
 	if(!entry){
 		printk(KERN_ERR "GRY_FRAG_HASH_TUPLE_T:NO_MEM\n");
 		return -1;
@@ -154,3 +154,15 @@ void gry_rab_timer_destroy(void){
 	del_timer_sync(&rab_cleanup_timer);
 }
 
+void* gry_safe_alloc(size_t size){
+	if(in_atomic()){
+		return kmalloc(size, GFP_ATOMIC);
+	}
+	return kmalloc(size, GFP_KERNEL);
+}
+
+int gry_get_memory_alloc_type(){
+	if(in_atomic())
+		return GFP_ATOMIC;
+	return GFP_KERNEL;
+}
