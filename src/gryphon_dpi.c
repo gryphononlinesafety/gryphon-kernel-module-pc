@@ -38,6 +38,8 @@
 #include <net/netfilter/nf_conntrack_core.h>
 #include "gryphon_buffer_management.h"
 
+#define GRY_MODULE_VERSION "01.0001.09"
+
 #define PORTSCAN_ENABLED 1
 #define GRYPHON_DEBUG_ENABLED 0
 #define PARENT_PROC_DIR "gryphon"
@@ -2837,6 +2839,7 @@ static int __init parental_control_init(void){
 	is_gso_capable = false;
 
 	printk(KERN_INFO "GRY_DPI_KERN: inserting\n");
+	printk(KERN_INFO "GRY_DPI_KERN: Version: %s\n", GRY_MODULE_VERSION);
 
 	// Initialize the common variable for checking the fragmented tuple
 	fragTuple = gry_safe_alloc(sizeof(struct gry_fragment_tuple_t));
@@ -2933,4 +2936,4 @@ module_exit(parental_control_exit);
 MODULE_AUTHOR("Naveen Kumar Gutti<naveen@gryphonconnect.com>");
 MODULE_DESCRIPTION("Parental control module");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("01.0001.08");
+MODULE_VERSION(GRY_MODULE_VERSION);
