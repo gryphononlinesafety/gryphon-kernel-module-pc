@@ -62,8 +62,9 @@ int gry_rab_peek_tuple_element(struct gry_fragment_tuple_t *elem){
 int gry_rab_get_tuple_element(struct gry_fragment_tuple_t *elem) {
 	u32 bkt;
 	struct gry_frag_hash_tuple_t *entry;
+	struct hlist_node *tmp;
 	spin_lock_bh(&gry_rab_lock);
-	hash_for_each(fragment_table, bkt, entry, hnode){
+	hash_for_each_safe(fragment_table, bkt, tmp, entry, hnode){
 		if(entry->saddr == elem->saddr && entry->daddr == elem->daddr && entry->sport == elem->sport && entry->dport == elem->dport && entry->protocol == elem->protocol){
 			hash_del(&entry->hnode);
 			kfree(entry);
@@ -89,8 +90,9 @@ int gry_rab_print_tuple_elements() {
 int gry_rab_clear_tuple_elements() {
 	u32 bkt;
 	struct gry_frag_hash_tuple_t *entry;
+	struct hlist_node *tmp;
 	spin_lock_bh(&gry_rab_lock);
-	hash_for_each(fragment_table, bkt, entry, hnode){
+	hash_for_each_safe(fragment_table, bkt, tmp, entry, hnode){
 		hash_del(&entry->hnode);
 		kfree(entry);
 	}
@@ -101,8 +103,9 @@ int gry_rab_clear_tuple_elements() {
 int gry_rab_del_tuple_element(struct gry_fragment_tuple_t *elem) {
 	u32 bkt;
 	struct gry_frag_hash_tuple_t *entry;
+	struct hlist_node *tmp;
 	spin_lock_bh(&gry_rab_lock);
-	hash_for_each(fragment_table, bkt, entry, hnode){
+	hash_for_each_safe(fragment_table, bkt, tmp, entry, hnode){
 		if(entry->saddr == elem->saddr && entry->daddr == elem->daddr && entry->sport == elem->sport && entry->dport == elem->dport && entry->protocol == elem->protocol){
 			hash_del(&entry->hnode);
 			kfree(entry);
@@ -117,9 +120,10 @@ int gry_rab_del_tuple_element(struct gry_fragment_tuple_t *elem) {
 void gry_rab_cleanup_timer_exec(struct timer_list *t){
 	u32 bkt;
 	struct gry_frag_hash_tuple_t *entry;
+	struct hlist_node *tmp;
 	int count = 0, del_count = 0;
 	spin_lock_bh(&gry_rab_lock);
-	hash_for_each(fragment_table, bkt, entry, hnode){
+	hash_for_each_safe(fragment_table, bkt, tmp, entry, hnode){
 		if(jiffies - entry->timestamp > msecs_to_jiffies(RAB_TIMER_INTERVAL * 1000)){
 			hash_del(&entry->hnode);
 			kfree(entry);

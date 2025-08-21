@@ -748,16 +748,18 @@ static int labnf_set_inet_pause_unpause(struct sk_buff *skb, struct genl_info *i
 static int labnf_flush_table(struct sk_buff *skb, struct genl_info *info_rcv) {
 	safe_mac_ip_ *peer;
 	u32 bkt;
+	struct hlist_node *tmp;
+	struct hlist_node *tmp1;
 	//if (info_rcv->attrs[LABPM_ATTR_UNSAFE_IP] != NULL) {
 		spin_lock_bh(&labnf_unsafe_ip_lock);
-		hash_for_each(labnf_unsafe_ip_hash, bkt, peer, hnode){
+		hash_for_each_safe(labnf_unsafe_ip_hash, bkt, tmp, peer, hnode){
 				hash_del(&peer->hnode);
 				kfree(peer);
 		}
 		spin_unlock_bh(&labnf_unsafe_ip_lock);
 		
 		spin_lock_bh(&labnf_unsafe_youtube_ip_lock);
-		hash_for_each(labnf_unsafe_youtube_ip_hash, bkt, peer, hnode){
+		hash_for_each_safe(labnf_unsafe_youtube_ip_hash, bkt, tmp1, peer, hnode){
 				hash_del(&peer->hnode);
 				kfree(peer);
 		}
@@ -827,6 +829,7 @@ static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info 
 	safe_mac_ip_ *peer;
 	int key;
 	u32 bkt;
+	struct hlist_node *tmp;
 
 	if(!info_recv->attrs[LABPM_ATTR_DNAT]){
 		printk("GRY_DPI_KERN: add_del_mac_to_safe_list: error\n");
@@ -845,7 +848,7 @@ static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info 
 			}
 		}
 	} else if(action == RM_RULE){
-		hash_for_each(labnf_safe_mac_hash, bkt, peer, hnode){
+		hash_for_each_safe(labnf_safe_mac_hash, bkt, tmp, peer, hnode){
 			if(memcmp(mac, peer->mac, ETH_ALEN) == 0){
 				hash_del(&peer->hnode);
 				kfree(peer);
