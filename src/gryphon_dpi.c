@@ -865,20 +865,34 @@ static int labnf_allow_safesearch_ip(struct sk_buff *skb, struct genl_info *info
 static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info *info_recv){
 	struct nlattr *na = info_recv->attrs[LABPM_ATTR_DNAT];
 	char rule[32] = {0};
+	int attr_len = 0;
 	unsigned char mac[6] = {0};
 	unsigned int action;
 	safe_mac_ip_ *peer;
 	int key;
 	u32 bkt;
 	struct hlist_node *tmp;
+	int scan_ret_val = 0;
 
 	if(!info_recv->attrs[LABPM_ATTR_DNAT]){
 		printk("GRY_DPI_KERN: add_del_mac_to_safe_list: error\n");
 		return -EINVAL;
 	}
-	
-	nla_memcpy(rule, na, 32);
-	sscanf(rule, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx %u", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5], &action);
+	attr_len = nla_len(na);
+	if(attr_len <= 0){
+		printk("GRY_DPI_KERN: labnf_add_del_mac_to_safe_list: attr_len 0\n");
+		return -EINVAL;
+	}
+	if(attr_len >= sizeof(rule)){
+		attr_len = sizeof(rule) - 1;
+	}
+	nla_memcpy(rule, na, attr_len);
+	rule[attr_len] = '\0';
+	scan_ret_val = sscanf(rule, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx %u", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5], &action);
+	if(scan_ret_val != 7){
+		pr_err("GRY_DPI_KERN: labnf_add_del_mac_to_safe_list: incorrect data\n");
+		return -EINVAL;
+	}
 	key = HASH_MAC(mac);
 	spin_lock_bh(&labnf_safe_mac_lock);
 	if(action == ADD_RULE){
