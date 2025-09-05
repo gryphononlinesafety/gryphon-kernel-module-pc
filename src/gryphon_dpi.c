@@ -418,9 +418,6 @@ struct timer_list port_scan_timer;
 // GSO conditions. But still retransmissions will be checked
 bool is_gso_capable;
 
-// Variable for checking the fragmented tuple
-struct gry_fragment_tuple_t *fragTuple;
-
 #if PORTSCAN_ENABLED
 // Initialize the data storage nodes and memset them to 0
 void init_data_storage(void){
@@ -1983,7 +1980,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 	int idx = 0;
 	int canSendResult = 0;
 	int rabExists = 0;
-
+	struct gry_fragment_tuple_t fragTuple = {0};
 	if(!skb)
 		return NF_ACCEPT;
 
@@ -2046,9 +2043,6 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		return NF_ACCEPT;
 	}
 
-	// clear the fragmented tuple memory
-	memset(fragTuple, 0, sizeof(struct gry_fragment_tuple_t));
-	
 	// UDP Protocol
 	if(iph->protocol == IPPROTO_UDP){
 		struct udphdr *udph = NULL;
@@ -2201,27 +2195,27 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		canSendResult = can_send_tcp_to_labrador(tcph, dest_port, data, ntohs(iph->tot_len));
 		//printk("data0: %02X, %02X 5[%02X]for %u", data[0], data[1], data[5], ntohs(tcph->source));
 		// check if the packet is marked as fragmented from application layer
-		fragTuple->saddr = iph->saddr;
-		fragTuple->daddr = iph->daddr;
-		fragTuple->sport = tcph->source;
-		fragTuple->dport = tcph->dest;
-		fragTuple->protocol = 6;
+		fragTuple.saddr = iph->saddr;
+		fragTuple.daddr = iph->daddr;
+		fragTuple.sport = tcph->source;
+		fragTuple.dport = tcph->dest;
+		fragTuple.protocol = 6;
 		if(canSendResult == 2){
 			// This is a client hello, check if its a re-transmission
 			// use the peek_tuple method to confirm if its a re-tramission
-			if(gry_rab_peek_tuple_element(fragTuple) == 0){
+			if(gry_rab_peek_tuple_element(&fragTuple) == 0){
 				// mark the tuple exists in RAB
 				// as we don't need to save it again in RAB,
 				// and just forward to labrador
 				rabExists = 1;
-				//printk(KERN_INFO "GRY_RAB_PEEK: SIZE FOR re-tx ignore %u, %u, %u\n", fragTuple->daddr, ntohs(fragTuple->sport), ntohs(fragTuple->dport));
+				//pr_debug("GRY_RAB_PEEK: SIZE FOR re-tx ignore %u, %u, %u\n", fragTuple.daddr, ntohs(fragTuple.sport), ntohs(fragTuple.dport));
 			}
 		} else if(canSendResult == 0){
 			// This is not client hello, so confirm if the same tuple is
 			// present in the RAB. This is definitely not CLIHLO, so 2nd frame
-			if(gry_rab_get_tuple_element(fragTuple) == 0){
+			if(gry_rab_get_tuple_element(&fragTuple) == 0){
 				// tuple found in RAB, send to labrador
-				//printk("GRY_RAB_GET: SIZE FOR 2nd packet: %u for %u, port[%u],[%u], skb_is_gso[%d], [%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
+				//pr_debug("GRY_RAB_GET: SIZE FOR 2nd packet: %u for %u, port[%u],[%u], skb_is_gso[%d], [%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
 				labnf_parse_history(skb, IPPROTO_TCP);
 				return NF_DROP;
 			}
@@ -2290,19 +2284,19 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 #if 0
 			if(is_gso_capable){
 				if(is_gso && rabExists == 0){
-					gry_rab_set_tuple_element(fragTuple);
+					gry_rab_set_tuple_element(&fragTuple);
 					printk("GRY_RAB_SET: SIZE FOR add RAB: %u for %u, port[%u],[%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest));
 				}
 			} else {
 				if(rabExists == 0){
-					gry_rab_set_tuple_element(fragTuple);
+					gry_rab_set_tuple_element(&fragTuple);
 					printk("GRY_RAB_SET: SIZE FOR add RAB: %u for %u, port[%u],[%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest));
 				}
 			}
 #endif
 			// canSendResult 2 means, len greater than 1100 and gso is 1
 			if(canSendResult == 2 && rabExists == 0){
-				gry_rab_set_tuple_element(fragTuple);
+				gry_rab_set_tuple_element(&fragTuple);
 				//printk("GRY_RAB_SET: SIZE FOR add RAB: %u for %u, port[%u],[%u], gso[%u], gso_len[%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
 			}
 			//printk("SIZE FOR ip header for inskb2 for unknown: %u for %u, port[%u],[%u], skb_is_gso[%d], [%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
@@ -2974,13 +2968,6 @@ static int __init parental_control_init(void){
 	pr_info("GRY_DPI_KERN: inserting\n");
 	pr_info("GRY_DPI_KERN: Version: %s\n", GRY_MODULE_VERSION);
 
-	// Initialize the common variable for checking the fragmented tuple
-	fragTuple = gry_safe_alloc(sizeof(struct gry_fragment_tuple_t));
-	if(!fragTuple){
-		pr_err("GRY_DPI_KERN: fragTuple malloc failed\n");
-		return -1;
-	}
-
 	// invoke the timer for RAB
 	gry_rab_timer_invoke();
 	
@@ -3056,9 +3043,6 @@ static void __exit parental_control_exit(void){
 	// destroy the timer for RAB
 	gry_rab_timer_destroy();
 
-	if(fragTuple){
-		kfree(fragTuple);
-	}
 	pr_info("GRY_DPI_KERN: Parental control module exit success\n");
 }
 
