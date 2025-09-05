@@ -493,7 +493,7 @@ void add_tcp_special_scan_to_store(unsigned char *mac, int len){
 		for(i = 0; i < tcp_special_nodes.node_count; i++){
 			if(!memcmp((tcp_data_ptr+i)->mac, mac, len)){
 				(tcp_data_ptr+i)->port_count += 1;
-				// printk("gryphon: adding to current value: %pM6, %d\n", tcp_data_ptr->mac, tcp_data_ptr->port_count);
+				//pr_debug("GRY_DPI_KERN: adding to current value: %pM6, %d\n", tcp_data_ptr->mac, tcp_data_ptr->port_count);
 				return;
 			}
 		}
@@ -538,7 +538,7 @@ void add_tcp_normal_scan_to_store(unsigned char *mac, int len, unsigned int port
 		}
 
 		if(tcp_normal_scan.node_count >= NO_OF_DEVICES){
-			printk("gryphon: no of devices exceeded to handle, ignoring\n");
+			pr_info("GRY_DPI_KERN: no of devices exceeded to handle, ignoring\n");
 			return;
 		}
 		tcp_normal_ptr = (tcp_normal_scan.nodes + tcp_normal_scan.node_count);
@@ -621,7 +621,7 @@ static inline int quic_draft_version(u32 version)
 // Function responsible for storing the userspace application id for LABPM_DNAT
 // into the kernel space for communication
 static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_recv){
-	printk("GRY_DPI_KERN: labnf_set_labpm_portid: init done\n");
+	pr_info("GRY_DPI_KERN: labnf_set_labpm_portid: init done\n");
 	write_lock_bh(&genl_rwlock);
 	if(info != NULL){
 		pr_info("GRY_DPI_KERN: labnf_set_labpm_portid: info-exist free\n");
@@ -629,13 +629,13 @@ static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_re
 	}
 	info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!info){
-		printk("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid\n");
+		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid\n");
 		write_unlock_bh(&genl_rwlock);
 		return 0;
 	}
 	memset(info, 0, sizeof(struct genl_info));
 	memcpy(info, info_recv, sizeof(struct genl_info));
-	printk("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid\n");
+	pr_info("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid\n");
 	write_unlock_bh(&genl_rwlock);
 	return 0;
 }
@@ -643,7 +643,7 @@ static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_re
 // Function responsible for storing the userspace application id for LABPM_UDP
 // into the kernel space for communication
 static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *info_recv){
-	printk(KERN_INFO "GRY_DPI_KERN: labnf_set_labpm_udp_portid: init done\n");
+	pr_info("GRY_DPI_KERN: labnf_set_labpm_udp_portid: init done\n");
 	write_lock_bh(&genl_rwlock);
 	if(udp_info != NULL){
 		pr_info("GRY_DPI_KERN: labnf_set_labpm_udp_portid: udp_info-exist free\n");
@@ -651,13 +651,13 @@ static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *inf
 	}
 	udp_info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!udp_info){
-		printk(KERN_ERR "GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid\n");
+		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid\n");
 		write_unlock_bh(&genl_rwlock);
 		return 0;
 	} 
 	memset(udp_info, 0, sizeof(struct genl_info));
 	memcpy(udp_info, info_recv, sizeof(struct genl_info));
-	printk("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid_udp\n");
+	pr_info("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid_udp\n");
 	write_unlock_bh(&genl_rwlock);
 	return 0;
 }
@@ -769,7 +769,7 @@ static int labnf_set_inet_pause_unpause(struct sk_buff *skb, struct genl_info *i
 	if(attr == LABPM_ATTR_INET_PAUSE || attr == LABPM_ATTR_INET_BEDTIME_PAUSE){
 		peer = gry_safe_alloc(sizeof(redirect_));
 		if(peer == NULL){
-			printk("GRY_DPI_KERN: Failed to allocate memory: LABPM_ATTR_INET_PAUSE, LABPM_ATTR_INET_BEDTIME_PAUSE\n");
+			pr_err("GRY_DPI_KERN: Failed to allocate memory: LABPM_ATTR_INET_PAUSE, LABPM_ATTR_INET_BEDTIME_PAUSE\n");
 			return 0;
 		}
 		memset(peer, 0, sizeof(redirect_));
@@ -817,12 +817,12 @@ static int labnf_reset_labpm_portid(struct sk_buff *skb, struct genl_info *info_
 	if(info != NULL){
 		kfree(info);
 		info = NULL;
-		printk("GRY_DPI_KERN: nl_close_done\n");
+		pr_info("GRY_DPI_KERN: nl_close_done\n");
 	}
 	if(udp_info != NULL){
 		kfree(udp_info);
 		udp_info = NULL;
-		printk(KERN_INFO "GRY_DPI_KERN: nl_close_done udp\n");
+		pr_info("GRY_DPI_KERN: nl_close_done udp\n");
 	}
 	write_unlock_bh(&genl_rwlock);
 	return 0;
@@ -847,7 +847,7 @@ static int labnf_allow_safesearch_ip(struct sk_buff *skb, struct genl_info *info
 	char buffer[128] = {0};
 	int attr_len = 0;
 	if(!info_recv->attrs[LABPM_ATTR_DNAT]){
-		printk("GRY_DPI_KERN: failed allow_safesearch_ip\n");
+		pr_err("GRY_DPI_KERN: failed allow_safesearch_ip\n");
 		return -EINVAL;
 	}
 	attr_len = nla_len(na);
@@ -883,12 +883,12 @@ static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info 
 	int scan_ret_val = 0;
 
 	if(!info_recv->attrs[LABPM_ATTR_DNAT]){
-		printk("GRY_DPI_KERN: add_del_mac_to_safe_list: error\n");
+		pr_err("GRY_DPI_KERN: add_del_mac_to_safe_list: error\n");
 		return -EINVAL;
 	}
 	attr_len = nla_len(na);
 	if(attr_len <= 0){
-		printk("GRY_DPI_KERN: labnf_add_del_mac_to_safe_list: attr_len 0\n");
+		pr_err("GRY_DPI_KERN: labnf_add_del_mac_to_safe_list: attr_len 0\n");
 		return -EINVAL;
 	}
 	if(attr_len >= sizeof(rule)){
@@ -950,7 +950,7 @@ static int labnf_add_ip_to_unsafe_list(struct sk_buff *skb, struct genl_info *in
 	int a,b,c,d;
 	u32 bkt;
 	if(!info_recv->attrs[LABPM_ATTR_DNAT]){
-		printk("GRY_DPI_KERN: error labnf_add_ip_to_unsafe_list\n");
+		pr_err("GRY_DPI_KERN: error labnf_add_ip_to_unsafe_list\n");
 		return -EINVAL;
 	}
 	attr_len = nla_len(na);
@@ -1006,7 +1006,7 @@ static int labnf_add_ip_to_apc_list(struct sk_buff *skb, struct genl_info *info_
 	int scan_ret_val = 0;
 
 	if(!info_rcv->attrs[1]) {
-		printk("GRY_DPI_KERN: labnf_add_ip_to_apc_list: no attribute\n");
+		pr_err("GRY_DPI_KERN: labnf_add_ip_to_apc_list: no attribute\n");
 		return -EINVAL;
 	}
 	attr_len = nla_len(na);
@@ -1064,7 +1064,7 @@ static int labnf_add_del_mac_to_apc_list(struct sk_buff *skb, struct genl_info *
 	int scan_ret_val = 0;
 
 	if(!info_rcv->attrs[LABPM_ATTR_DNAT]) {
-		printk("GRY_DPI_KERN: add_del_to_apc_list: no attribute\n");
+		pr_err("GRY_DPI_KERN: add_del_to_apc_list: no attribute\n");
 		return -EINVAL;
 	}
 	attr_len = nla_len(na);
@@ -1157,7 +1157,7 @@ static int labnf_add_music_ip_list(struct sk_buff *skb, struct genl_info *info_r
 	}		
 	recv_len = nla_len(info_rcv->attrs[LABPM_ATTR_MUSIC_IP]);
 	if(recv_len != sizeof(struct musicappiplist_t)){
-		printk("set music ip list failed: incorrect length\n");
+		pr_err("GRY_DPI_KERN: set music ip list failed: incorrect length\n");
 		return 0;
 	}
 
@@ -1387,7 +1387,7 @@ static inline int add_del_mac_to_safe_youtube_list(struct sk_buff *skb, struct g
 	int scan_ret_val = 0;
 
 	if(!info_rcv->attrs[LABPM_ATTR_DNAT]) {
-		printk("no attribute\n");
+		pr_err("GRY_DPI_KERN: add_del_mac_to_safe_youtube_list: ATTR_DNAT fail\n");
 		return -EINVAL;
 	}
 	attr_len = nla_len(na);
@@ -1506,8 +1506,8 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 		memcpy(&temp_info, udp_info, sizeof(struct genl_info));
 	} else {
 		// Incorrect protocol
-		printk(KERN_ERR "GRY_DPI_KERN: labnf_send_packet: protocol error\n");
 		write_unlock_bh(&genl_rwlock);
+		pr_err("GRY_DPI_KERN: labnf_send_packet: protocol error\n");
 		return -1;
 	}
 	write_unlock_bh(&genl_rwlock);
@@ -1552,7 +1552,7 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 		nlmsg_free(msg);
 		return -1;
 	}
-	//printk(KERN_INFO "GRY_LABNF_KERN: pack_length: %d, gso_length: %d\n", len, gso_length);
+	pr_debug("GRY_DPI_KERN: LABNF_KERN: pack_length: %d, gso_length: %d\n", len, gso_length);
 
 	genlmsg_end(msg, hdr);
 	result = genlmsg_unicast(genl_info_net(&temp_info), msg, temp_info.snd_portid);
@@ -1598,14 +1598,14 @@ static void labnf_parse_history(struct sk_buff *skb, uint8_t protocol){
 		// call GSO functions only if the protocol is TCP
 		if(labnf_send_packet(skb, pack_len, skb->dev->name, gry_skb_gso_network_seglen(skb), protocol) < 0){
 			if(labnf_send_packet(skb, pack_len, skb->dev->name, gry_skb_gso_network_seglen(skb), protocol) < 0){
-				//printk(KERN_ERR "NETLINK_ERROR_RE_TX: [%u]\n", protocol);
+				pr_debug("GRY_DPI_KERN: NETLINK_ERROR_RE_TX: [%u]\n", protocol);
 			}
 		}
 	} else {
 		// GSO functions are ignored in UDP Protocol or non GSO packets
 		if(labnf_send_packet(skb, pack_len, skb->dev->name, 0, protocol) < 0){
 			if(labnf_send_packet(skb, pack_len, skb->dev->name, 0, protocol) < 0){
-				//printk(KERN_ERR "NETLINK_ERROR_RE_TX: [%u]\n", protocol);
+				pr_debug("GRY_DPI_KERN: NETLINK_ERROR_RE_TX: [%u]\n", protocol);
 			}
 		}
 	}
@@ -1813,19 +1813,19 @@ static int cloud_server_allowed_list(struct sk_buff *skb, struct genl_info *info
 	struct nlattr *na;
 	uint32_t *ipaddr;
 	if(!info_recv->attrs[LABPM_ATTR_CLOUD_SERVER]){
-		printk(KERN_ERR "GRY_CLOUD_SERVER: invalid payload\n");
+		pr_err("GRY_DPI_KERN: GRY_CLOUD_SERVER: invalid payload\n");
 		return -1;
 	}
 	na = info_recv->attrs[LABPM_ATTR_CLOUD_SERVER];
 	if(nla_len(na) != sizeof(uint32_t)){
-		printk(KERN_ERR "GRY_CLOUD_SERVER: invalid size\n");
+		pr_err("GRY_DPI_KERN: GRY_CLOUD_SERVER: invalid size\n");
 		return -1;
 	}
 	ipaddr = (uint32_t*)nla_data(na);
 	{
 		u32 bkt;
 		cloud_server_ip_ *peer;
-		//printk(KERN_INFO "GRY_CLOUD_SERVER: Recv: %u, %pI4\n", *ipaddr, ipaddr);
+		//pr_info("GRY_DPI_KERN: GRY_CLOUD_SERVER: Recv: %u, %pI4\n", *ipaddr, ipaddr);
 		spin_lock_bh(&labnf_cloud_server_lock);
 		hash_for_each(labnf_cloud_server_hash, bkt, peer, hnode){
 			if(peer->ipaddr == *ipaddr){
@@ -1851,19 +1851,19 @@ static int apple_priv_browse_block_list(struct sk_buff *skb, struct genl_info *i
 	struct nlattr *na;
 	uint32_t *ipaddr;
 	if(!info_recv->attrs[LABPM_ATTR_APPLE_PRIV]){
-		printk(KERN_ERR "GRY_APPLE_PRIV: invalid payload\n");
+		pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: invalid payload\n");
 		return -1;
 	}
 	na = info_recv->attrs[LABPM_ATTR_APPLE_PRIV];
 	if(nla_len(na) != sizeof(uint32_t)){
-		printk(KERN_ERR "GRY_APPLE_PRIV: invalid size\n");
+		pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: invalid size\n");
 		return -1;
 	}
 	ipaddr = (uint32_t*)nla_data(na);
 	{
 		u32 bkt;
 		apple_priv_ip_ *peer;
-		//printk(KERN_INFO "GRY_APPLE_PRIV: Recv: %u, %pI4\n", *ipaddr, ipaddr);
+		pr_debug("GRY_DPI_KERN: GRY_APPLE_PRIV: Recv: %u, %pI4\n", *ipaddr, ipaddr);
 		spin_lock_bh(&labnf_apple_priv_lock);
 		hash_for_each(labnf_apple_priv_hash, bkt, peer, hnode){
 			if(peer->ipaddr == *ipaddr){
@@ -1903,20 +1903,20 @@ static int apple_priv_browse_mac_list(struct sk_buff *skb, struct genl_info *inf
 	struct nlattr *na;
 	apple_priv_mac_t *apple_priv_mac;
 	if(!info_recv->attrs[LABPM_ATTR_APPLE_PRIV_MAC]){
-		printk(KERN_ERR "GRY_APPLE_PRIV: invalid LABPM_ATTR_APPLE_PRIV_MAC\n");
+		pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: invalid LABPM_ATTR_APPLE_PRIV_MAC\n");
 		return -1;
 	}
 	na = info_recv->attrs[LABPM_ATTR_APPLE_PRIV_MAC];
 	if(nla_len(na) != sizeof(apple_priv_mac_t)){
-		printk(KERN_ERR "GRY_APPLE_PRIV: invalid sizeof struct apple_priv_mac_\n");
+		pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: invalid sizeof struct apple_priv_mac_\n");
 		return -1;
 	}
 	apple_priv_mac = (apple_priv_mac_t*)nla_data(na);
 	if(apple_priv_mac == NULL){
-		printk(KERN_ERR "GRY_APPLE_PRIV: invalid data of struct apple_priv_mac\n");
+		pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: invalid data of struct apple_priv_mac\n");
 		return -1;
 	}
-	//printk(KERN_INFO "GRY_APPLE_PRIV: MAC RECV: %pM6, %d\n", apple_priv_mac->mac, apple_priv_mac->action);
+	pr_debug("GRY_DPI_KERN: GRY_APPLE_PRIV: MAC RECV: %pM6, %d\n", apple_priv_mac->mac, apple_priv_mac->action);
 	if(apple_priv_mac->action == ADD_RULE){
 		u32 bkt;
 		apple_priv_mac_ *peer;
@@ -1931,7 +1931,7 @@ static int apple_priv_browse_mac_list(struct sk_buff *skb, struct genl_info *inf
 		
 		peer = (apple_priv_mac_*)gry_safe_alloc(sizeof(apple_priv_mac_));
 		if(peer == NULL){
-			printk(KERN_ERR "GRY_APPLE_PRIV: mac gry_safe_alloc failed\n");
+			pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: mac gry_safe_alloc failed\n");
 			return -1;
 		}
 		memcpy(peer->data.mac, apple_priv_mac->mac, ETH_ALEN);
@@ -1953,7 +1953,7 @@ static int apple_priv_browse_mac_list(struct sk_buff *skb, struct genl_info *inf
 		}
 		spin_unlock_bh(&labnf_apple_priv_lock);
 	} else {
-		printk(KERN_ERR "GRY_APPLE_PRIV: invalid action for apple_priv_mac\n");
+		pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: invalid action for apple_priv_mac\n");
 		return -1;
 	}
 	return 0;
@@ -2329,28 +2329,28 @@ static int fragment_tuple_rab_action(struct sk_buff *skb, struct genl_info *recv
 	struct gry_fragment_tuple_payload_t *tuple_payload;
 	struct gry_fragment_tuple_t *tuple;
 	if(!recvinfo->attrs[LABPM_ATTR_FRAGMENT_TUPLE]){
-		printk(KERN_ERR "GRY_DPI_KERN: FRAG_TUPLE_ATTR_NOT_FOUND\n");
+		pr_err("GRY_DPI_KERN: FRAG_TUPLE_ATTR_NOT_FOUND\n");
 		return -EINVAL;
 	}
 	
 	na = recvinfo->attrs[LABPM_ATTR_FRAGMENT_TUPLE];
 	if(nla_len(na) != sizeof(struct gry_fragment_tuple_payload_t)){
-		printk(KERN_ERR "GRY_DPI_KERN: FRAG_TUPLE_ATTR_LEN_ERR\n");
+		pr_err("GRY_DPI_KERN: FRAG_TUPLE_ATTR_LEN_ERR\n");
 		return -EINVAL;
 	}
 	
 	tuple_payload = (struct gry_fragment_tuple_payload_t*)nla_data(na);
-	printk(KERN_INFO "GRY_DPI_KERN: Recevied Fragment Tuple\n");
+	pr_info("GRY_DPI_KERN: Recevied Fragment Tuple\n");
 	switch(tuple_payload->cmd){
 		case GRY_FRAG_CMD_SET:
 			tuple = &(tuple_payload->tuple);
 			gry_rab_set_tuple_element(tuple);
-			printk(KERN_INFO "GRY_DPI_KERN: SET: %u, %u, %u, %u, %u\n", tuple->saddr, tuple->daddr, ntohs(tuple->sport), ntohs(tuple->dport), tuple->protocol);
+			pr_info("GRY_DPI_KERN: SET: %u, %u, %u, %u, %u\n", tuple->saddr, tuple->daddr, ntohs(tuple->sport), ntohs(tuple->dport), tuple->protocol);
 			break;
 		case GRY_FRAG_CMD_GET:
 			tuple = &(tuple_payload->tuple);
 			gry_rab_get_tuple_element(tuple);
-			printk(KERN_INFO "GRY_DPI_KERN: GET: %u, %u, %u, %u, %u\n", tuple->saddr, tuple->daddr, ntohs(tuple->sport), ntohs(tuple->dport), tuple->protocol);
+			pr_info("GRY_DPI_KERN: GET: %u, %u, %u, %u, %u\n", tuple->saddr, tuple->daddr, ntohs(tuple->sport), ntohs(tuple->dport), tuple->protocol);
 			break;
 		case GRY_FRAG_CMD_PRINT:
 			gry_rab_print_tuple_elements();
@@ -2361,7 +2361,7 @@ static int fragment_tuple_rab_action(struct sk_buff *skb, struct genl_info *recv
 		case GRY_FRAG_CMD_DEL:
 			tuple = &(tuple_payload->tuple);
 			gry_rab_del_tuple_element(tuple);
-			printk(KERN_INFO "GRY_DPI_KERN: DELETE: %u, %u, %u, %u, %u\n", tuple->saddr, tuple->daddr, ntohs(tuple->sport), ntohs(tuple->dport), tuple->protocol);
+			pr_info("GRY_DPI_KERN: DELETE: %u, %u, %u, %u, %u\n", tuple->saddr, tuple->daddr, ntohs(tuple->sport), ntohs(tuple->dport), tuple->protocol);
 		default:
 			break;
 	}
@@ -2670,9 +2670,9 @@ ssize_t portscan_verbose_write(struct file *filp, const char *ubuf, size_t count
 			// if failed to parse the number, assign default to 0
 			portscan_verbose = 0;
 		}
-		printk("gryphon: port scan verbose mode: %d\n", portscan_verbose);
+		pr_info("GRY_DPI_KERN: port scan verbose mode: %d\n", portscan_verbose);
 	} else {
-		printk("gryphon: incorrect verbose mode specified, allowed are only 1 or 0\n");
+		pr_info("GRY_DPI_KERN: incorrect verbose mode specified, allowed are only 1 or 0\n");
 		return -1;
 	}
 	return len;
@@ -2726,9 +2726,9 @@ ssize_t parental_control_verbose_write(struct file *filp, const char *ubuf, size
 		if(kstrtouint(parental_control_verbose_buffer, 0, &parental_control_verbose) != 0){
 			parental_control_verbose = 0;
 		}
-		printk("GRY_DPI_KERN: PC Verbose mode: %d\n", parental_control_verbose);
+		pr_info("GRY_DPI_KERN: PC Verbose mode: %d\n", parental_control_verbose);
 	} else {
-		printk("GRY_DPI_KERN: PC Verbose mode incorrect only 1 and 0 are allowed\n");
+		pr_info("GRY_DPI_KERN: PC Verbose mode incorrect only 1 and 0 are allowed\n");
 		return -1;
 	}
 	return len;
@@ -2787,12 +2787,12 @@ ssize_t hashtable_name_verbose_write(struct file *filp, const char *ubuf, size_t
 	if(copy_from_user(buffer, ubuf, len))
 		return -EFAULT;
 	if(kstrtouint(buffer, 0, &hashtable_name) != 0){
-		printk("GRY_DPI_KERN: incorrect hashtable name\n");
+		pr_err("GRY_DPI_KERN: incorrect hashtable name\n");
 		return -1;
 	}
-	printk("GRY_DPI_KERN: Hash table selected: %d\n", hashtable_name);
+	pr_info("GRY_DPI_KERN: Hash table selected: %d\n", hashtable_name);
 	if(hashtable_name < 1 && hashtable_name > 6){
-		printk("GRY_DPI_KERN: incorrect hashtable name\n");
+		pr_err("GRY_DPI_KERN: incorrect hashtable name\n");
 		return -1;
 	}
 	return len;
@@ -2823,7 +2823,7 @@ ssize_t hashtable_print_read(struct file *filp, char *ubuf, size_t count, loff_t
 	if(*ppos > 0 || count < VERBOSE_BUFFER_SIZE)
 		return 0;
 
-	printk("GRY_DPI_KERN: Current Hashtable being printed is: %d\n", hashtable_name);
+	pr_info("GRY_DPI_KERN: Current Hashtable being printed is: %d\n", hashtable_name);
 
 	if(hashtable_name == 1){
 		redirect_ *peer;
@@ -2945,7 +2945,7 @@ cleanup:
 #endif
 	if(parent_dir)
 		proc_remove(parent_dir);
-	printk("gryphon: failed to create proc entries\n");
+	pr_info("GRY_DPI_KERN: failed to create proc entries\n");
 	return -1;
 }
 #endif 
@@ -2960,7 +2960,7 @@ static void gryphon_destroy_proc_fs(void){
 		proc_remove(portscan_dir);
 	if(parent_dir)
 		proc_remove(parent_dir);
-	printk("gryphon: proc entries removed\n");
+	pr_info("GRY_DPI_KERN: proc entries removed\n");
 }
 #endif
 
@@ -2971,13 +2971,13 @@ static int __init parental_control_init(void){
 
 	is_gso_capable = false;
 
-	printk(KERN_INFO "GRY_DPI_KERN: inserting\n");
-	printk(KERN_INFO "GRY_DPI_KERN: Version: %s\n", GRY_MODULE_VERSION);
+	pr_info("GRY_DPI_KERN: inserting\n");
+	pr_info("GRY_DPI_KERN: Version: %s\n", GRY_MODULE_VERSION);
 
 	// Initialize the common variable for checking the fragmented tuple
 	fragTuple = gry_safe_alloc(sizeof(struct gry_fragment_tuple_t));
 	if(!fragTuple){
-		printk(KERN_ERR "GRY_DPI_KERN: fragTuple malloc failed\n");
+		pr_err("GRY_DPI_KERN: fragTuple malloc failed\n");
 		return -1;
 	}
 
@@ -2993,27 +2993,27 @@ static int __init parental_control_init(void){
 	if(ret_val < 0)
 		goto cleanup;
 #endif
-	printk("GRY_DPI_KERN: Parental control module init success\n");
+	pr_info("GRY_DPI_KERN: Parental control module init success\n");
 	for_each_net(n) {
 		nf_register_net_hook(n, &gry_prerouting_hook_ops);
 #if PORTSCAN_ENABLED
 		nf_register_net_hook(n, &gry_portscan_hook_ops);
 #endif
 	}
-	printk("GRY_DPI_KERN: hook register success\n");
+	pr_info("GRY_DPI_KERN: hook register success\n");
 
 	if(gry_register_labpm_genl_family() < 0){
-		printk("GRY_DPI_KERN: genl_register_family failed\n");
+		pr_err("GRY_DPI_KERN: genl_register_family failed\n");
 		goto cleanup;
 	}
 
 	if(gry_register_tc_genl_family() < 0){
-		printk("GRY_DPI_KERN: tc_genl_family failed\n");
+		pr_err("GRY_DPI_KERN: tc_genl_family failed\n");
 		goto cleanup;
 	}
 
 	if(ret_val){
-		printk("GRY_DPI_KERN: failed to register genl\n");
+		pr_err("GRY_DPI_KERN: failed to register genl\n");
 		goto cleanup;
 	}
 	return 0;
@@ -3059,7 +3059,7 @@ static void __exit parental_control_exit(void){
 	if(fragTuple){
 		kfree(fragTuple);
 	}
-	printk("GRY_DPI_KERN: Parental control module exit success\n");
+	pr_info("GRY_DPI_KERN: Parental control module exit success\n");
 }
 
 module_init(parental_control_init);
