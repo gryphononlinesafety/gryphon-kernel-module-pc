@@ -824,21 +824,28 @@ static int labnf_reset_ra_portid(struct sk_buff *skb, struct genl_info *info_rec
 // Function responsible for handling safesearch ips
 static int labnf_allow_safesearch_ip(struct sk_buff *skb, struct genl_info *info_recv){
 	struct nlattr *na = info_recv->attrs[1];
-	char iplist[128] = {0};
+	char buffer[128] = {0};
+	int attr_len = 0;
 	if(!info_recv->attrs[LABPM_ATTR_DNAT]){
 		printk("GRY_DPI_KERN: failed allow_safesearch_ip\n");
 		return -EINVAL;
 	}
-	nla_memcpy(iplist, na, 128);
-	if(strlen(iplist) <= 0){
-		printk("GRY_DPI_KERN: failed allow_safesearch_ip: no ips\n");
+	attr_len = nla_len(na);
+	if(attr_len <= 0){
+		pr_err("GRY_DPI_KERN: failed allow_safesearch_ip: no ips\n");
 		return -EINVAL;
 	}
-	write_lock_bh(&ss_rwlock);
+	if(attr_len >= sizeof(buffer)){
+		attr_len = sizeof(buffer) - 1;
+	}
+	nla_memcpy(buffer, na, attr_len);
+	buffer[attr_len] = '\0';
 
-	sscanf(iplist, "%x,%x,%x,%x,%x",&safesearchIps[0],&safesearchIps[1],&safesearchIps[2],&safesearchIps[3],&safesearchIps[4]);
-	safesearchCount = 5;
+	// perform the writing of safesearch ips 
+	write_lock_bh(&ss_rwlock);
+	safesearchCount = sscanf(buffer, "%x,%x,%x,%x,%x",&safesearchIps[0],&safesearchIps[1],&safesearchIps[2],&safesearchIps[3],&safesearchIps[4]);
 	write_unlock_bh(&ss_rwlock);
+	pr_info("GRY_DPI_KERN: ssips_count: [%d]\n", safesearchCount);
 	return 0;
 }
 
