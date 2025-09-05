@@ -30,7 +30,7 @@ int gry_rab_set_tuple_element(struct gry_fragment_tuple_t *elem) {
 	hash = gry_fragment_tuple_calculate_hash(elem);
 	entry = (struct gry_frag_hash_tuple_t*)gry_safe_alloc(sizeof(struct gry_frag_hash_tuple_t));
 	if(!entry){
-		printk(KERN_ERR "GRY_FRAG_HASH_TUPLE_T:NO_MEM\n");
+		pr_err("GRY_FRAG_HASH_TUPLE_T:NO_MEM\n");
 		return -1;
 	}
 	entry->saddr = elem->saddr;
@@ -81,7 +81,7 @@ int gry_rab_print_tuple_elements() {
 	struct gry_frag_hash_tuple_t *entry;
 	spin_lock_bh(&gry_rab_lock);
 	hash_for_each(fragment_table, bkt, entry, hnode){
-		printk(KERN_INFO "GRY_RAB_TUPLE: %u %u %u %u %u\n", entry->saddr, entry->daddr, entry->sport, entry->dport, entry->protocol);
+		pr_info("GRY_RAB_TUPLE: %u %u %u %u %u\n", entry->saddr, entry->daddr, entry->sport, entry->dport, entry->protocol);
 	}
 	spin_unlock_bh(&gry_rab_lock);
 	return 0;
@@ -132,7 +132,7 @@ void gry_rab_cleanup_timer_exec(struct timer_list *t){
 		count++;
 	}
 	spin_unlock_bh(&gry_rab_lock);
-	// printk(KERN_INFO "GRY_RAB_TIMER_TRIGGER: [%d] [%d]\n", count, del_count);
+	pr_debug("GRY_RAB_TIMER_TRIGGER: [%d] [%d]\n", count, del_count);
 	// trigger the timer again
 	mod_timer(&rab_cleanup_timer, jiffies + msecs_to_jiffies(RAB_TIMER_INTERVAL * 1000));
 }
