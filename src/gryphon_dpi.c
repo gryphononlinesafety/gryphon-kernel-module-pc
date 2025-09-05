@@ -835,7 +835,7 @@ static int labnf_reset_ra_portid(struct sk_buff *skb, struct genl_info *info_rec
 
 // Function responsible for handling safesearch ips
 static int labnf_allow_safesearch_ip(struct sk_buff *skb, struct genl_info *info_recv){
-	struct nlattr *na = info_recv->attrs[1];
+	struct nlattr *na = info_recv->attrs[LABPM_ATTR_DNAT];
 	char buffer[128] = {0};
 	int attr_len = 0;
 	if(!info_recv->attrs[LABPM_ATTR_DNAT]){
