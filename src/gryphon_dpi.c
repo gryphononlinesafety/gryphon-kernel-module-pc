@@ -1375,15 +1375,30 @@ static inline int add_del_mac_to_safe_youtube_list(struct sk_buff *skb, struct g
 	int key;
 	u32 bkt;
 	struct hlist_node *tmp;
+	int attr_len = 0;
+	int scan_ret_val = 0;
 
 	if(!info_rcv->attrs[LABPM_ATTR_DNAT]) {
 		printk("no attribute\n");
 		return -EINVAL;
 	}
+	attr_len = nla_len(na);
+	if(attr_len <= 0){
+		pr_err("GRY_DPI_KERN: add_del_mac_to_safe_youtube_list: attr_len 0\n");
+		return -EINVAL;
+	}
+	if(attr_len >= sizeof(rule)){
+		attr_len = sizeof(rule) - 1;
+	}
 
 	nla_memcpy(rule, na, 32);
+	rule[attr_len] = '\0';
 
-	sscanf(rule, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx %u", &mac[0], &mac[1],&mac[2], &mac[3], &mac[4], &mac[5], &action);
+	scan_ret_val = sscanf(rule, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx %u", &mac[0], &mac[1],&mac[2], &mac[3], &mac[4], &mac[5], &action);
+	if(scan_ret_val != 7){
+		pr_err("GRY_DPI_KERN: add_del_mac_to_safe_youtube_list: incorrect mac action\n");
+		return -EINVAL;
+	}
 
 	key = HASH_MAC(mac);
 	spin_lock_bh(&labnf_safe_youtube_mac_lock);
