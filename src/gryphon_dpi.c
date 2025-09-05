@@ -685,25 +685,45 @@ static int labnf_set_inet_pause_unpause(struct sk_buff *skb, struct genl_info *i
 	bool pexists = false;
 	char buff[30] = {0};
 	u32 bkt;
+	int attr_len = 0;
+	int scan_ret_val = 0;
 	if(info_recv->attrs[LABPM_ATTR_INET_PAUSE] != NULL){
 		na = info_recv->attrs[LABPM_ATTR_INET_PAUSE];
-		nla_memcpy(buff, na, 18);
-		sscanf(buff, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+		attr_len = nla_len(na);
+		if(attr_len >= sizeof(buff)){
+			attr_len = sizeof(buff) - 1;
+		}
+		nla_memcpy(buff, na, attr_len);
+		buff[attr_len] = '\0';
+		scan_ret_val = sscanf(buff, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
 		attr = LABPM_ATTR_INET_PAUSE;
 	} else if(info_recv->attrs[LABPM_ATTR_INET_UNPAUSE] != NULL){
 		na = info_recv->attrs[LABPM_ATTR_INET_UNPAUSE];
-		nla_memcpy(buff, na, 18);
-		sscanf(buff, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+		attr_len = nla_len(na);
+		if(attr_len >= sizeof(buff)) {
+			attr_len = sizeof(buff) - 1;
+		}
+		nla_memcpy(buff, na, attr_len);
+		buff[attr_len] = '\0';
+		scan_ret_val = sscanf(buff, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
 		attr = LABPM_ATTR_INET_UNPAUSE;
 	} else if(info_recv->attrs[LABPM_ATTR_INET_BEDTIME_PAUSE] != NULL){
 		na = info_recv->attrs[LABPM_ATTR_INET_BEDTIME_PAUSE];
-		nla_memcpy(buff, na, 18);
-		sscanf(buff, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+		attr_len = nla_len(na);
+		if(attr_len >= sizeof(buff)){
+			attr_len = sizeof(buff) - 1;
+		}
+		nla_memcpy(buff, na, attr_len);
+		buff[attr_len] = '\0';
+		scan_ret_val = sscanf(buff, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
 		attr = LABPM_ATTR_INET_BEDTIME_PAUSE;
 	} else {
 		return 0;
 	}
-
+	if(scan_ret_val != 6){
+		pr_err("GRY_DPI_KERN: incorrect MAC received: [%d]", scan_ret_val);
+		return 0;
+	}
 	key1 = HASH_MAC(mac);
 	spin_lock_bh(&labnf_redirect_lock);
 	hash_for_each(labnf_redirect_hash, bkt, peer, hnode){
