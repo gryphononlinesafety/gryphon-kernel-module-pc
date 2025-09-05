@@ -1284,6 +1284,8 @@ static inline int add_ip_to_unsafe_youtube_list(struct sk_buff *skb, struct genl
 	int key;
 	int unsafe_youtube_ip=0;
 	u32 bkt;
+	int attr_len = 0;
+	int scan_ret_val = 0;
 
 	if(info_rcv == NULL) {
 		return -EINVAL;
@@ -1292,9 +1294,21 @@ static inline int add_ip_to_unsafe_youtube_list(struct sk_buff *skb, struct genl
 	if(!na) {
 		return -EINVAL;
 	}
-
-	nla_memcpy(rule, na, 32);
-	sscanf(rule, "%d.%d.%d.%d",&ip_str[3], &ip_str[2], &ip_str[1], &ip_str[0]);
+	attr_len = nla_len(na);
+	if(attr_len <= 0){
+		pr_err("GRY_DPI_KERN: add_ip_to_unsafe_youtube_list: attr_len 0\n");
+		return -EINVAL;
+	}
+	if(attr_len >= sizeof(rule)){
+		attr_len = sizeof(rule) - 1;
+	}
+	nla_memcpy(rule, na, attr_len);
+	rule[attr_len] = '\0';
+	scan_ret_val = sscanf(rule, "%d.%d.%d.%d",&ip_str[3], &ip_str[2], &ip_str[1], &ip_str[0]);
+	if(scan_ret_val != 4){
+		pr_err("GRY_DPI_KERN: add_ip_to_unsafe_youtube_list: incorrect ip\n");
+		return -EINVAL;
+	}
 	unsafe_youtube_ip = (ip_str[0] << 24) | (ip_str[1] << 16) | (ip_str[2] << 8) | ip_str[3];
 	key = HASH(unsafe_youtube_ip);
 	spin_lock_bh(&labnf_unsafe_youtube_ip_lock);
