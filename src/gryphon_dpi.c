@@ -934,6 +934,8 @@ static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info 
 static int labnf_add_ip_to_unsafe_list(struct sk_buff *skb, struct genl_info *info_recv){
 	struct nlattr *na = info_recv->attrs[LABPM_ATTR_DNAT];
 	char rule[32] = {0};
+	int attr_len = 0;
+	int scan_ret_val = 0;
 	safe_mac_ip_ *peer;
 	int key;
 	uint32_t unsafe_ip;
@@ -943,8 +945,21 @@ static int labnf_add_ip_to_unsafe_list(struct sk_buff *skb, struct genl_info *in
 		printk("GRY_DPI_KERN: error labnf_add_ip_to_unsafe_list\n");
 		return -EINVAL;
 	}
-	nla_memcpy(rule, na, 32);
-	sscanf(rule, "%d.%d.%d.%d", &a, &b, &c, &d);
+	attr_len = nla_len(na);
+	if(attr_len <= 0){
+		pr_err("GRY_DPI_KERN: attr_len 0\n");
+		return -EINVAL;
+	}
+	if(attr_len >= sizeof(rule)){
+		attr_len = sizeof(rule) - 1;
+	}
+	nla_memcpy(rule, na, attr_len);
+	rule[attr_len] = '\0';
+	scan_ret_val = sscanf(rule, "%d.%d.%d.%d", &a, &b, &c, &d);
+	if(scan_ret_val != 4){
+		pr_err("GRY_DPI_KERN: labnf_add_ip_to_unsafe_list: scan_ret_val err\n");
+		return -EINVAL;
+	}
 	unsafe_ip = htonl(a << 24 | b << 16 | c << 8 | d);
 	key = HASH(unsafe_ip);
 
