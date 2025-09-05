@@ -690,6 +690,10 @@ static int labnf_set_inet_pause_unpause(struct sk_buff *skb, struct genl_info *i
 	if(info_recv->attrs[LABPM_ATTR_INET_PAUSE] != NULL){
 		na = info_recv->attrs[LABPM_ATTR_INET_PAUSE];
 		attr_len = nla_len(na);
+		if(attr_len <= 0){
+			pr_err("GRY_DPI_KERN: inet_pause attr_len 0\n");
+			return 0;
+		}
 		if(attr_len >= sizeof(buff)){
 			attr_len = sizeof(buff) - 1;
 		}
@@ -700,6 +704,10 @@ static int labnf_set_inet_pause_unpause(struct sk_buff *skb, struct genl_info *i
 	} else if(info_recv->attrs[LABPM_ATTR_INET_UNPAUSE] != NULL){
 		na = info_recv->attrs[LABPM_ATTR_INET_UNPAUSE];
 		attr_len = nla_len(na);
+		if(attr_len <= 0){
+			pr_err("GRY_DPI_KERN: inet_unpause attr_len 0\n");
+			return 0;
+		}
 		if(attr_len >= sizeof(buff)) {
 			attr_len = sizeof(buff) - 1;
 		}
@@ -710,6 +718,10 @@ static int labnf_set_inet_pause_unpause(struct sk_buff *skb, struct genl_info *i
 	} else if(info_recv->attrs[LABPM_ATTR_INET_BEDTIME_PAUSE] != NULL){
 		na = info_recv->attrs[LABPM_ATTR_INET_BEDTIME_PAUSE];
 		attr_len = nla_len(na);
+		if(attr_len <= 0){
+			pr_err("GRY_DPI_KERN: inet_bedtime attr_len 0\n");
+			return 0;
+		}
 		if(attr_len >= sizeof(buff)){
 			attr_len = sizeof(buff) - 1;
 		}
