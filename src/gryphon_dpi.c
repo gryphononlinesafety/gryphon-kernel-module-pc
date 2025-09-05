@@ -623,6 +623,10 @@ static inline int quic_draft_version(u32 version)
 static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_recv){
 	printk("GRY_DPI_KERN: labnf_set_labpm_portid: init done\n");
 	write_lock_bh(&genl_rwlock);
+	if(info != NULL){
+		pr_info("GRY_DPI_KERN: labnf_set_labpm_portid: info-exist free\n");
+		kfree(info);
+	}
 	info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!info){
 		printk("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid\n");
@@ -641,6 +645,10 @@ static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_re
 static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *info_recv){
 	printk(KERN_INFO "GRY_DPI_KERN: labnf_set_labpm_udp_portid: init done\n");
 	write_lock_bh(&genl_rwlock);
+	if(udp_info != NULL){
+		pr_info("GRY_DPI_KERN: labnf_set_labpm_udp_portid: udp_info-exist free\n");
+		kfree(udp_info);
+	}
 	udp_info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!udp_info){
 		printk(KERN_ERR "GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid\n");
