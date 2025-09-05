@@ -3035,16 +3035,15 @@ static void __exit parental_control_exit(void){
 
 	genl_unregister_family(&gry_ra_genl_family);
 
-#if 0
-	// Free the memory
-	if(history_buffer){
-		kfree(history_buffer);
+	if(udp_info != NULL){
+		pr_info("GRY_DPI_KERN: free udp_info\n");
+		kfree(udp_info);
 	}
 
-	if(packattr){
-		kfree(packattr);
+	if(info != NULL){
+		pr_info("GRY_DPI_KERN: free info\n");
+		kfree(info);
 	}
-#endif
 
 	// destroy the timer for RAB
 	gry_rab_timer_destroy();
