@@ -987,7 +987,7 @@ static int labnf_add_ip_to_unsafe_list(struct sk_buff *skb, struct genl_info *in
 
 // Function responsible for adding ip address to apc list
 static int labnf_add_ip_to_apc_list(struct sk_buff *skb, struct genl_info *info_rcv){
-	struct nlattr *na = info_rcv->attrs[1];
+	struct nlattr *na = info_rcv->attrs[LABPM_ATTR_DNAT];
 	char rule[32] = {0};
 	unsigned int apc[4] = {0};
 	apc_ip_ *peer;
@@ -1044,7 +1044,7 @@ static int labnf_add_ip_to_apc_list(struct sk_buff *skb, struct genl_info *info_
 
 static int labnf_add_del_mac_to_apc_list(struct sk_buff *skb, struct genl_info *info_rcv)
 {
-	struct nlattr *na = info_rcv->attrs[1];
+	struct nlattr *na = info_rcv->attrs[LABPM_ATTR_DNAT];
 	char rule[32] = {0};
 	unsigned char mac[6] = {0};
 	unsigned int action;
@@ -1055,7 +1055,7 @@ static int labnf_add_del_mac_to_apc_list(struct sk_buff *skb, struct genl_info *
 	int attr_len = 0;
 	int scan_ret_val = 0;
 
-	if(!info_rcv->attrs[1]) {
+	if(!info_rcv->attrs[LABPM_ATTR_DNAT]) {
 		printk("GRY_DPI_KERN: add_del_to_apc_list: no attribute\n");
 		return -EINVAL;
 	}
@@ -1391,7 +1391,7 @@ static inline int add_del_mac_to_safe_youtube_list(struct sk_buff *skb, struct g
 		attr_len = sizeof(rule) - 1;
 	}
 
-	nla_memcpy(rule, na, 32);
+	nla_memcpy(rule, na, attr_len);
 	rule[attr_len] = '\0';
 
 	scan_ret_val = sscanf(rule, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx %u", &mac[0], &mac[1],&mac[2], &mac[3], &mac[4], &mac[5], &action);
