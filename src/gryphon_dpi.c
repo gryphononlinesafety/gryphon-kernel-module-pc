@@ -629,14 +629,14 @@ static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_re
 	}
 	info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!info){
-		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid\n");
 		write_unlock_bh(&genl_rwlock);
+		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid\n");
 		return 0;
 	}
 	memset(info, 0, sizeof(struct genl_info));
 	memcpy(info, info_recv, sizeof(struct genl_info));
-	pr_info("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid\n");
 	write_unlock_bh(&genl_rwlock);
+	pr_info("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid\n");
 	return 0;
 }
 
@@ -651,14 +651,14 @@ static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *inf
 	}
 	udp_info = gry_safe_alloc(sizeof(struct genl_info));
 	if(!udp_info){
-		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid\n");
 		write_unlock_bh(&genl_rwlock);
+		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid\n");
 		return 0;
 	} 
 	memset(udp_info, 0, sizeof(struct genl_info));
 	memcpy(udp_info, info_recv, sizeof(struct genl_info));
-	pr_info("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid_udp\n");
 	write_unlock_bh(&genl_rwlock);
+	pr_info("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid_udp\n");
 	return 0;
 }
 
