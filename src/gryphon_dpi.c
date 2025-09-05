@@ -994,15 +994,29 @@ static int labnf_add_ip_to_apc_list(struct sk_buff *skb, struct genl_info *info_
 	int key;
 	int apc_ip;
 	u32 bkt;
+	int attr_len = 0;
+	int scan_ret_val = 0;
 
 	if(!info_rcv->attrs[1]) {
 		printk("GRY_DPI_KERN: labnf_add_ip_to_apc_list: no attribute\n");
 		return -EINVAL;
 	}
+	attr_len = nla_len(na);
+	if(attr_len <= 0){
+		pr_err("GRY_DPI_KERN: labnf_add_ip_to_apc_list attr_len 0\n");
+		return -EINVAL;
+	}
+	if(attr_len >= sizeof(rule)){
+		attr_len = sizeof(rule) - 1;
+	}
+	nla_memcpy(rule, na, attr_len);
+	rule[attr_len] = '\0';
 
-	nla_memcpy(rule, na, 32);
-
-	sscanf(rule, "%d.%d.%d.%d",&apc[3], &apc[2], &apc[1], &apc[0]);
+	scan_ret_val = sscanf(rule, "%d.%d.%d.%d",&apc[3], &apc[2], &apc[1], &apc[0]);
+	if(scan_ret_val != 4){
+		pr_err("GRY_DPI_KERN: labnf_add_ip_to_apc_list: incorrect ip\n");
+		return -EINVAL;
+	}
 
 	apc_ip = (apc[0] << 24) | (apc[1] << 16) | (apc[2] << 8) | apc[3];
 	key = HASH(apc_ip);
@@ -1038,15 +1052,29 @@ static int labnf_add_del_mac_to_apc_list(struct sk_buff *skb, struct genl_info *
 	int key;
 	u32 bkt;
 	struct hlist_node *tmp;
+	int attr_len = 0;
+	int scan_ret_val = 0;
 
 	if(!info_rcv->attrs[1]) {
 		printk("GRY_DPI_KERN: add_del_to_apc_list: no attribute\n");
 		return -EINVAL;
 	}
+	attr_len = nla_len(na);
+	if(attr_len <= 0){
+		pr_err("GRY_DPI_KERN: add_del_mac_to_apc: attr_len 0\n");
+		return -EINVAL;
+	}
+	if(attr_len >= sizeof(rule)){
+		attr_len = sizeof(rule) - 1;
+	}
+	nla_memcpy(rule, na, attr_len);
+	rule[attr_len] = '\0';
 
-	nla_memcpy(rule, na, 32);
-
-	sscanf(rule, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx %u", &mac[0], &mac[1],&mac[2], &mac[3], &mac[4], &mac[5], &action);
+	scan_ret_val = sscanf(rule, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx %u", &mac[0], &mac[1],&mac[2], &mac[3], &mac[4], &mac[5], &action);
+	if(scan_ret_val != 7){
+		pr_err("GRY_DPI_KERN: add_del_mac_to_apc: incorrect mac action\n");
+		return -EINVAL;
+	}
 
 	key = HASH_MAC(mac);
 	spin_lock_bh(&labnf_apc_mac_lock);
