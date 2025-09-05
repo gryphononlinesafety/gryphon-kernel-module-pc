@@ -416,7 +416,9 @@ struct timer_list port_scan_timer;
 // This variable will confirm if the platform supports GSO or not
 // Incase of GSO not supported, adding to RAB doesn't include the 
 // GSO conditions. But still retransmissions will be checked
+#if 0
 bool is_gso_capable;
+#endif
 
 #if PORTSCAN_ENABLED
 // Initialize the data storage nodes and memset them to 0
@@ -2963,7 +2965,9 @@ static int __init parental_control_init(void){
 	int ret_val;
 	struct net *n;
 
+#if 0
 	is_gso_capable = false;
+#endif
 
 	pr_info("GRY_DPI_KERN: inserting\n");
 	pr_info("GRY_DPI_KERN: Version: %s\n", GRY_MODULE_VERSION);
