@@ -1283,8 +1283,7 @@ static int can_send_tcp_to_labrador(struct tcphdr *tcph, uint16_t dest_port, cha
 static inline int add_ip_to_unsafe_youtube_list(struct sk_buff *skb, struct genl_info *info_rcv)
 {
 
-	struct nlattr *na = info_rcv->attrs[LABPM_ATTR_DNAT];
-
+	struct nlattr *na = NULL;
 	char rule[32] = {0};
 	unsigned int ip_str[4] = {0};
 	safe_mac_ip_ *peer;
@@ -1294,10 +1293,11 @@ static inline int add_ip_to_unsafe_youtube_list(struct sk_buff *skb, struct genl
 	int attr_len = 0;
 	int scan_ret_val = 0;
 
-	if(info_rcv == NULL) {
+	if(!info_rcv->attrs[LABPM_ATTR_DNAT]){
 		return -EINVAL;
 	}
 
+	na = info_rcv->attrs[LABPM_ATTR_DNAT];
 	if(!na) {
 		return -EINVAL;
 	}
