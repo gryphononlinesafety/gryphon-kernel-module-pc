@@ -2141,11 +2141,8 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			}
 			labnf_parse_history(skb, IPPROTO_UDP);
 			return NF_DROP;
-
 		} else {
-			if(device_paused == PAUSED){
-				return NF_DROP;
-			}
+			return NF_ACCEPT;
 		}
 	}
 
