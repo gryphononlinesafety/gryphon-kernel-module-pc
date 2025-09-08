@@ -420,7 +420,23 @@ struct timer_list port_scan_timer;
 bool is_gso_capable;
 #endif
 
+int can_send_udp_to_labrador(unsigned char*, int);
+int isAUS(unsigned char *,int);
+int isStunFram(unsigned char *,int);
+
 #if PORTSCAN_ENABLED
+
+void init_data_storage(void);
+void clear_data_storage(void);
+void clear_data_storage_buffer(void);
+void free_data_storage(void);
+void add_tcp_special_scan_to_store(unsigned char*, int);
+void add_tcp_normal_scan_to_store(unsigned char*, int, unsigned int);
+ssize_t portscan_devices_read(struct file *, char *, size_t, loff_t *);
+ssize_t portscan_devices_write(struct file *, const char *, size_t, loff_t *);
+ssize_t portscan_verbose_read(struct file *, char *, size_t, loff_t *);
+ssize_t portscan_verbose_write(struct file *, const char *, size_t , loff_t *);
+
 // Initialize the data storage nodes and memset them to 0
 void init_data_storage(void){
 	tcp_special_nodes.node_count = 0;
