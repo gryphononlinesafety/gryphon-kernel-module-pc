@@ -1197,41 +1197,53 @@ static int labnf_add_music_ip_list(struct sk_buff *skb, struct genl_info *info_r
 static int labnf_peer_inet_paused(char *mac, int ipaddr, int port){
 	redirect_ *peer;
 	u32 bkt;
+	int inet_pause = 0;
+	int inet_bedtime_music_allowed = 0;
+	int peer_found = 0;
 
+	/* First lock: check redirect hash and copy state */
 	spin_lock_bh(&labnf_redirect_lock);
 	hash_for_each(labnf_redirect_hash, bkt, peer, hnode){
 		if(memcmp(peer->mac, mac, ETH_ALEN) == 0){
-			if(peer->inet_pause == 1){
-				if(peer->inet_bedtime_music_allowed == 0){
-					// 0 - not allowed, 1 allowed
-					spin_unlock_bh(&labnf_redirect_lock);
-					return PAUSED;
-				} else {
-					musical_ip_ *mpeer;
-					u32 musicBkt;
-					spin_lock_bh(&labnf_music_ip_lock);
-					hash_for_each(labnf_music_ip_hash, musicBkt, mpeer, hnode){
-						if(mpeer->music_ip == ipaddr){
-							spin_unlock_bh(&labnf_music_ip_lock);
-							spin_unlock_bh(&labnf_redirect_lock);
-							return UNPAUSED;
-						}
-					}
-
-					if(port == 4070){
-						spin_unlock_bh(&labnf_music_ip_lock);
-						spin_unlock_bh(&labnf_redirect_lock);
-						return UNPAUSED;
-					}
-					spin_unlock_bh(&labnf_music_ip_lock);
-					spin_unlock_bh(&labnf_redirect_lock);
-					return PAUSED;
-				}
-			}
+			inet_pause = peer->inet_pause;
+			inet_bedtime_music_allowed = peer->inet_bedtime_music_allowed;
+			peer_found = 1;
+			break;
 		}
 	}
 	spin_unlock_bh(&labnf_redirect_lock);
-	return UNPAUSED;
+
+	/* Early return if peer not found or not paused */
+	if(!peer_found || inet_pause != 1){
+		return UNPAUSED;
+	}
+
+	/* If music is not allowed during bedtime, pause immediately */
+	if(inet_bedtime_music_allowed == 0){
+		// 0 - not allowed, 1 allowed
+		return PAUSED;
+	}
+
+	/* Second lock: check if IP is in music list (no nested locking!) */
+	spin_lock_bh(&labnf_music_ip_lock);
+	{
+		musical_ip_ *mpeer;
+		u32 musicBkt;
+		hash_for_each(labnf_music_ip_hash, musicBkt, mpeer, hnode){
+			if(mpeer->music_ip == ipaddr){
+				spin_unlock_bh(&labnf_music_ip_lock);
+				return UNPAUSED;
+			}
+		}
+	}
+	spin_unlock_bh(&labnf_music_ip_lock);
+
+	/* Special case: port 4070 is always allowed */
+	if(port == 4070){
+		return UNPAUSED;
+	}
+
+	return PAUSED;
 }
 
 // packet processing functions
