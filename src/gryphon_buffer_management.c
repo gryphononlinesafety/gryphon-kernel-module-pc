@@ -159,10 +159,7 @@ void gry_rab_timer_destroy(void){
 }
 
 void* gry_safe_alloc(size_t size){
-	if(in_atomic()){
-		return kmalloc(size, GFP_ATOMIC);
-	}
-	return kmalloc(size, GFP_KERNEL);
+	return kmalloc(size, GFP_ATOMIC);
 }
 
 int gry_get_memory_alloc_type(){
