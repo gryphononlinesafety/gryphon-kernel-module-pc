@@ -1520,6 +1520,9 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 	struct genl_info temp_info = {0};
 	int cmd = LABPM_CMD_PACKET;
 	int result = 0;
+	unsigned char *data_ptr = NULL;
+	unsigned int data_len = 0;
+
 	write_lock_bh(&genl_rwlock);
 	if(info == NULL){
 		write_unlock_bh(&genl_rwlock);
@@ -1538,6 +1541,45 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 		return -1;
 	}
 	write_unlock_bh(&genl_rwlock);
+
+	/* Check if MAC header is set and valid */
+	if(!skb_mac_header_was_set(skb)){
+		pr_debug("GRY_DPI_KERN: MAC header not set, using network header\n");
+		/* Use network header (IP) instead */
+		data_ptr = skb_network_header(skb);
+		data_len = skb->len;
+	} else {
+		data_ptr = skb_mac_header(skb);
+		/* Calculate actual available length from MAC header */
+		data_len = skb->len + (skb_network_header(skb) - skb_mac_header(skb));
+	}
+
+	/* Validate the requested length */
+	if(len > data_len){
+		pr_warn("GRY_DPI_KERN: Requested len %d exceeds available %u, truncating\n", len, data_len);
+		len = data_len;
+	}
+
+	/* Ensure SKB is linearized - critical for accessing packet data */
+	if(skb_is_nonlinear(skb)){
+		if(skb_linearize(skb)){
+			pr_err("GRY_DPI_KERN: Failed to linearize SKB\n");
+			return -1;
+		}
+		/* Recalculate pointers after linearization */
+		if(!skb_mac_header_was_set(skb)){
+			data_ptr = skb_network_header(skb);
+		} else {
+			data_ptr = skb_mac_header(skb);
+		}
+	}
+
+	/* Additional bounds check */
+	if(data_ptr < skb->head || data_ptr + len > skb_tail_pointer(skb)){
+		pr_err("GRY_DPI_KERN: Invalid buffer bounds: ptr=%p len=%d head=%p tail=%p\n",
+		       data_ptr, len, skb->head, skb_tail_pointer(skb));
+		return -1;
+	}
 
 	msg = nlmsg_new(NLMSG_GOODSIZE, gry_get_memory_alloc_type());
 	if(!msg){
@@ -1574,7 +1616,7 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 	}
 	
 	// Add the packet buffer in binary format
-	if(nla_put(msg, LABNF_BUFFER, len, skb->head + skb->mac_header)){
+	if(nla_put(msg, LABNF_BUFFER, len, data_ptr)){
 		genlmsg_cancel(msg, hdr);
 		nlmsg_free(msg);
 		return -1;
