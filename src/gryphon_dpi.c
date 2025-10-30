@@ -1646,7 +1646,7 @@ static unsigned int gry_skb_gso_network_seglen(struct sk_buff *skb){
 	else if(likely(shinfo->gso_type & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6))){
 		thlen = tcp_hdrlen(skb);
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,1)
 	else if (unlikely(skb_is_gso_sctp(skb))) {
 		thlen = sizeof(struct sctphdr);
 	}
