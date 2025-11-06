@@ -2069,6 +2069,14 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		return NF_ACCEPT;
 	}
 	
+	/* Linearize SKB early if needed - ensures all packet data access is safe */
+	if(skb_is_nonlinear(skb)){
+		if(skb_linearize(skb)){
+			pr_debug("GRY_DPI_KERN: Failed to linearize SKB\n");
+			return NF_ACCEPT;
+		}
+	}
+	
 	eth_h = eth_hdr(skb);
 	if(!eth_h){
 #ifdef ENABLE_GRY_MARK
@@ -2118,7 +2126,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 	// UDP Protocol
 	if(iph->protocol == IPPROTO_UDP){
 		struct udphdr *udph = NULL;
-		int header = 0;
+		unsigned char *udp_payload = NULL;
 
 		if(udp_info == NULL){
 #ifdef ENABLE_GRY_MARK
@@ -2128,13 +2136,13 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		}
 
 		udph = (struct udphdr*)skb_transport_header(skb);
-		header = iph->ihl * 4 + sizeof (struct udphdr);
 		if(!udph){
 #ifdef ENABLE_GRY_MARK
 			gry_mark_skb(skb);
 #endif
 			return NF_ACCEPT;
 		}
+		udp_payload = (unsigned char *)udph + sizeof(struct udphdr);
 		src_port = ntohs(udph->source);
 		dest_port = ntohs(udph->dest);
 		if(dest_port == 22 || dest_port == 53 || dest_port == 3000 || dest_port == 67 || dest_port == 123 || dest_port == 1900 || src_port == dest_port){
@@ -2151,7 +2159,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_DROP;
 		}
 
-		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(skb->data + header, ntohs(udph->len))==1)) || (isStunFram(skb->data + header, ntohs(udph->len))==1) || (isAUS(skb->data + header, ntohs(udph->len))==1)){
+		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(udp_payload, ntohs(udph->len))==1)) || (isStunFram(udp_payload, ntohs(udph->len))==1) || (isAUS(udp_payload, ntohs(udph->len))==1)){
 			// check for safe ip
 			read_lock_bh(&ss_rwlock);	
 			for(idx=0;idx<safesearchCount;idx++) {
@@ -2244,12 +2252,14 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_ACCEPT;
 		}
 
-		if(ntohs(iph->tot_len) <= (iph->ihl * 4 + tcph->doff * 4)){
+		/* Quick check: if packet too small, skip inspection */
+		if(ntohs(iph->tot_len) <= (iph->ihl * 4 + tcph->doff * 4 + 6)){
 #ifdef ENABLE_GRY_MARK
 			gry_mark_skb(skb);
 #endif
 			return NF_ACCEPT;
 		}
+		
 		// Check the pause flag here
 		device_paused = labnf_peer_inet_paused(mac, iph->daddr, dest_port);
 
@@ -2260,7 +2270,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		}
 #endif
 
-		data = skb->data + iph->ihl * 4 + tcph->doff * 4;
+		data = (char *)tcph + tcph->doff * 4;
 		canSendResult = can_send_tcp_to_labrador(tcph, dest_port, data, ntohs(iph->tot_len));
 		//printk("data0: %02X, %02X 5[%02X]for %u", data[0], data[1], data[5], ntohs(tcph->source));
 		// check if the packet is marked as fragmented from application layer
