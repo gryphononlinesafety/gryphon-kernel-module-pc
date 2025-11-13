@@ -2463,14 +2463,14 @@ static struct genl_ops labpm_genl_ops[] = {
 	{
 		.cmd = LABPM_CMD_INIT,
 		.doit = labnf_set_labpm_portid,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_UDP_INIT,
 		.doit = labnf_set_labpm_udp_portid,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 
@@ -2479,7 +2479,7 @@ static struct genl_ops labpm_genl_ops[] = {
 	{
 		.cmd = LABPM_CMD_RA_INIT,
 		.doit = labnf_set_ra_portid,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
@@ -2487,14 +2487,14 @@ static struct genl_ops labpm_genl_ops[] = {
 	{
 		.cmd = LABPM_CMD_INET_PAUSE_UNPAUSE,
 		.doit = labnf_set_inet_pause_unpause,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_CLOSE,
 		.doit = labnf_reset_labpm_portid,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
@@ -2502,7 +2502,7 @@ static struct genl_ops labpm_genl_ops[] = {
 	{
 		.cmd = LABPM_CMD_RA_CLOSE,
 		.doit = labnf_reset_ra_portid,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
@@ -2510,28 +2510,28 @@ static struct genl_ops labpm_genl_ops[] = {
 	{
 		.cmd = LABPM_CMD_SS_IP_LIST,
 		.doit = labnf_allow_safesearch_ip,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_SAFE_MAC,
 		.doit = labnf_add_del_mac_to_safe_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_UNSAFE_IP,
 		.doit = labnf_add_ip_to_unsafe_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_APC_IP,
 		.doit = labnf_add_ip_to_apc_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
@@ -2539,28 +2539,28 @@ static struct genl_ops labpm_genl_ops[] = {
 
 		.cmd = LABPM_CMD_APC_MAC,
 		.doit = labnf_add_del_mac_to_apc_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_MUSIC_IP_LIST,
 		.doit = labnf_add_music_ip_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_FLUSH_TABLE,
 		.doit = labnf_flush_table,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_SAFE_YOUTUBE_MAC,
 		.doit = add_del_mac_to_safe_youtube_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 
@@ -2568,35 +2568,35 @@ static struct genl_ops labpm_genl_ops[] = {
 	{
 		.cmd = LABPM_CMD_UNSAFE_YOUTUBE_IP,
 		.doit = add_ip_to_unsafe_youtube_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_FRAGMENT_TUPLE,
 		.doit = fragment_tuple_rab_action,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_APPLE_PRIV,
 		.doit = apple_priv_browse_block_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_CLOUD_SERVER,
 		.doit = cloud_server_allowed_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	},
 	{
 		.cmd = LABPM_CMD_APPLE_PRIV_MAC,
 		.doit = apple_priv_browse_mac_list,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
 	}
@@ -2605,7 +2605,6 @@ static struct genl_ops labpm_genl_ops[] = {
 // function to register labpm_genl_family along with labpm_genl_ops
 static int gry_register_labpm_genl_family(void){
 	int result = 0;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
 	memset(&labpm_genl_family, 0, sizeof(struct genl_family));
 	labpm_genl_family.id = 0;
 	labpm_genl_family.hdrsize = 0;
@@ -2614,7 +2613,10 @@ static int gry_register_labpm_genl_family(void){
 	labpm_genl_family.maxattr = LABPM_ATTR_MAX;
 	labpm_genl_family.ops = labpm_genl_ops;
 	labpm_genl_family.n_ops = sizeof(labpm_genl_ops) / sizeof(labpm_genl_ops[0]);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,164)
 	labpm_genl_family.policy = labpm_genl_policy;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
 	result = genl_register_family(&labpm_genl_family);
 #else
 	result = genl_register_family_with_ops(&labpm_genl_family, labpm_genl_ops);
@@ -2624,7 +2626,6 @@ static int gry_register_labpm_genl_family(void){
 
 static int gry_register_tc_genl_family(void){
 	int result = 0;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
 	memset(&gry_ra_genl_family, 0, sizeof(struct genl_family));
 	gry_ra_genl_family.id = 0;
 	gry_ra_genl_family.version = 1;
@@ -2632,7 +2633,10 @@ static int gry_register_tc_genl_family(void){
 	gry_ra_genl_family.maxattr = LABPM_ATTR_MAX;
 	gry_ra_genl_family.ops = labpm_genl_ops;
 	gry_ra_genl_family.n_ops = sizeof(labpm_genl_ops) / sizeof(labpm_genl_ops[0]);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,164)
 	gry_ra_genl_family.policy = labpm_genl_policy;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
 	result = genl_register_family(&gry_ra_genl_family);
 #else
 	result = genl_register_family_with_ops(&gry_ra_genl_family, labpm_genl_ops);
