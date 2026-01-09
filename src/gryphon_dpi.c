@@ -1689,7 +1689,7 @@ int can_send_udp_to_labrador(unsigned char *data,int len)
 	u8 flags,long_packet_type;
 	u32 version;
 
-	if(len < 14) {
+	if(len < 6) {
 		return 0;
 	}
 
@@ -1740,6 +1740,8 @@ int can_send_udp_to_labrador(unsigned char *data,int len)
 }
 
 int isAUS(unsigned char *data,int len) {
+	if(len < 4)
+		return 0;
 	if((data[0] == 0x08) && (data[1]==0x00) && (data[2]==0x00) && (data[3]==0x00)){
 		return 1;
 	}
@@ -1754,7 +1756,9 @@ int isStunFram(unsigned char *stun,int captured_length) {
 	if (captured_length < MIN_HDR_LEN) {
 		return 0;
 	}
+	// Read the first 2 bytes to get msg_type
 	GET_SHORT_INT(msg_type,stun);
+	// Read the second 2 bytes to get msg length
 	GET_SHORT_INT(msg_len,stun+2);
 
 	if(msg_len>captured_length) {
@@ -2127,6 +2131,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 	if(iph->protocol == IPPROTO_UDP){
 		struct udphdr *udph = NULL;
 		unsigned char *udp_payload = NULL;
+		uint16_t udp_payload_length = 0;
 
 		if(udp_info == NULL){
 #ifdef ENABLE_GRY_MARK
@@ -2152,6 +2157,8 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_ACCEPT;
 		}
 
+		udp_payload_length = ntohs(udph->len) - sizeof(struct udphdr);
+
 		// If the device is already paused 
 		// NF_DROP all the packets
 		device_paused = labnf_peer_inet_paused(mac, iph->daddr, dest_port);
@@ -2159,7 +2166,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_DROP;
 		}
 
-		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(udp_payload, ntohs(udph->len))==1)) || (isStunFram(udp_payload, ntohs(udph->len))==1) || (isAUS(udp_payload, ntohs(udph->len))==1)){
+		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(udp_payload, udp_payload_length)==1)) || (isStunFram(udp_payload, udp_payload_length)==1) || (isAUS(udp_payload, udp_payload_length)==1)){
 			// check for safe ip
 			read_lock_bh(&ss_rwlock);	
 			for(idx=0;idx<safesearchCount;idx++) {
