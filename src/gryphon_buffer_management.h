@@ -41,9 +41,22 @@ struct gry_fragment_tuple_t {
 	uint8_t protocol;
 };
 
+struct gry_fragment_tuple_t_v6 {
+        struct in6_addr src_addr;
+        struct in6_addr dst_addr;
+        int sport;
+        int dport;
+        int protocol;
+};
+
 struct gry_fragment_tuple_payload_t {
 	int cmd;
 	struct gry_fragment_tuple_t tuple;
+}
+;
+struct gry_fragment_tuple_payload_t_v6 {
+	int cmd;
+	struct gry_fragment_tuple_t_v6 tuple;
 };
 
 struct gry_frag_hash_tuple_t {
@@ -56,23 +69,52 @@ struct gry_frag_hash_tuple_t {
 	struct hlist_node hnode;
 };
 
+
+struct gry_frag_hash_tuple_t_v6 {
+	struct in6_addr src_addr;
+	struct in6_addr dst_addr;
+	uint16_t sport;
+	uint16_t dport;
+	uint8_t protocol;
+	unsigned long timestamp;
+	struct hlist_node hnode;
+};
+
 // Insert a fragment_tuple information into the buffer
 int gry_rab_set_tuple_element(struct gry_fragment_tuple_t *elem);
+
+// Insert a fragment_tuple_v6 information into the buffer
+int gry_rab_set_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem);
 
 // Peek if a fragment_tuple information present in the buffer
 int gry_rab_peek_tuple_element(struct gry_fragment_tuple_t *elem);
 
+// Peek if a fragment_tuple_v6 information present in the buffer
+int gry_rab_peek_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem);
+
 // Retrieve a fragment_tuple information from the buffer
 int gry_rab_get_tuple_element(struct gry_fragment_tuple_t *elem);
 
-// Delete a fragment tuple information from the buffer
+// Retrieve a fragment_tuple_v6 information from the buffer 
+int gry_rab_get_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem);
+
+// Delete a fragment_tuple information from the buffer
 int gry_rab_del_tuple_element(struct gry_fragment_tuple_t *elem);
+
+// Delete a fragment_tuple_v6 information from the buffer
+int gry_rab_del_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem);
 
 // Print the buffer information
 int gry_rab_print_tuple_elements(void);
 
+// Print the v6 buffer information
+int gry_rab_print_tuple_elements_v6(void);
+
 // Clear the buffer
 int gry_rab_clear_tuple_elements(void);
+
+// Clear the v6 buffer
+int gry_rab_clear_tuple_elements_v6(void);
 
 // function execute the RAB timer
 void gry_rab_cleanup_timer_exec(struct timer_list *t);

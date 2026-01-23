@@ -20,11 +20,14 @@
 #include <linux/spinlock.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
+#include <linux/netfilter_ipv6.h>
 #include <linux/netfilter_bridge.h>
 #include <linux/if_ether.h>
 #include <linux/socket.h>
 #include <linux/in.h>
+#include <linux/in6.h>
 #include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <linux/tcp.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
 #include <linux/sctp.h>
@@ -38,7 +41,7 @@
 #include <net/netfilter/nf_conntrack_core.h>
 #include "gryphon_buffer_management.h"
 
-#define GRY_MODULE_VERSION "01.0001.15"
+#define GRY_MODULE_VERSION "01.0001.16"
 
 #define PORTSCAN_ENABLED 1
 #define GRYPHON_DEBUG_ENABLED 0
@@ -73,6 +76,7 @@
 
 #define HASH_MAC(c) (unsigned int)(c[0]+c[1]+c[2]+c[3]+c[4]+c[5])
 #define HASH(i) i
+#define HASH_IP6(c) (unsigned int)jhash(c, sizeof(struct in6_addr), 0)
 #define CLIENT_IP(x) (((x & 0x0000ffff) == 0x0000a8c0) || ((x & 0x000000ff) == 0x0000000a) || ((x & 0x0000f0ff) == 0x000010ac))?1:0
 
 // Packet matching
@@ -82,7 +86,7 @@
 #define TLS_TYPE_VER_LEN 3
 
 #define LEN_NTOHS(data) \
-         ntohs(*((unsigned short*)data))
+	ntohs(*((unsigned short*)data))
 
 #define PUFLAGS_VRSN    0x01
 #define PUFLAGS_CID     0x08
@@ -95,11 +99,11 @@
 #define STUN_ID_LEN 4
 
 #define GET_SHORT_INT(s, cp) { \
-		unsigned char *pc = (unsigned char *)(cp); \
-		(s) = ((unsigned short)pc[0] << 8) \
-			| ((unsigned short)pc[1]) \
-			; \
-	}
+	unsigned char *pc = (unsigned char *)(cp); \
+	(s) = ((unsigned short)pc[0] << 8) \
+	| ((unsigned short)pc[1]) \
+	; \
+}
 
 
 #define GQUIC_MAGIC2	0x513032
@@ -128,6 +132,10 @@ static DEFINE_HASHTABLE(labnf_unsafe_youtube_ip_hash, 8);
 static DEFINE_HASHTABLE(labnf_apple_priv_hash, 8);
 static DEFINE_HASHTABLE(labnf_apple_priv_mac_hash, 8);
 static DEFINE_HASHTABLE(labnf_cloud_server_hash, 8);
+static DEFINE_HASHTABLE(labnf_apple_priv_hash_v6, 8);
+static DEFINE_HASHTABLE(labnf_music_ip_hash_v6, 8);
+static DEFINE_HASHTABLE(labnf_unsafe_ip_hash_v6, 8);
+static DEFINE_HASHTABLE(labnf_unsafe_youtube_ip_hash_v6, 8);
 
 // SPIN LOCKS
 static DEFINE_SPINLOCK(labnf_redirect_lock);
@@ -140,6 +148,10 @@ static DEFINE_SPINLOCK(labnf_safe_youtube_mac_lock);
 static DEFINE_SPINLOCK(labnf_unsafe_youtube_ip_lock);
 static DEFINE_SPINLOCK(labnf_apple_priv_lock);
 static DEFINE_SPINLOCK(labnf_cloud_server_lock);
+static DEFINE_SPINLOCK(labnf_apple_priv_lock_v6);
+static DEFINE_SPINLOCK(labnf_music_ip_lock_v6);
+static DEFINE_SPINLOCK(labnf_unsafe_ip_lock_v6);
+static DEFINE_SPINLOCK(labnf_unsafe_youtube_ip_lock_v6);
 
 #if PORTSCAN_ENABLED
 static DEFINE_SPINLOCK(gry_lock);
@@ -148,6 +160,7 @@ static DEFINE_SPINLOCK(gry_lock);
 // RW LOCKS
 static rwlock_t genl_rwlock = __RW_LOCK_UNLOCKED(genl_rwlock);
 static rwlock_t ss_rwlock = __RW_LOCK_UNLOCKED(ss_rwlock);
+static rwlock_t ss_rwlock_v6 = __RW_LOCK_UNLOCKED(ss_rwlock_v6);
 
 typedef struct raw_ip_list_{ 
 	int len;
@@ -190,9 +203,20 @@ typedef struct {
 } safe_mac_ip_;
 
 typedef struct {
+	unsigned char mac[6];
+	struct in6_addr unsafe_ip_v6;
+	struct hlist_node hnode;
+} safe_mac_ip_v6_;
+
+typedef struct {
 	int music_ip;
 	struct hlist_node hnode;
 } musical_ip_;
+
+typedef struct {
+	struct  in6_addr music_ip6;
+	struct hlist_node hnode;
+} musical_ip_v6_;
 
 typedef struct {
 	int apc_ip;
@@ -213,6 +237,11 @@ typedef struct {
 	uint32_t ipaddr;
 	struct hlist_node hnode;
 } cloud_server_ip_;
+
+typedef struct {
+	struct in6_addr ipaddr_v6;
+	struct hlist_node hnode;
+} apple_priv_ip_v6_;
 
 typedef struct {
 	unsigned char mac[ETH_ALEN];
@@ -242,6 +271,7 @@ enum {
 	LABPM_ATTR_APPLE_PRIV,
 	LABPM_ATTR_APPLE_PRIV_MAC,
 	LABPM_ATTR_CLOUD_SERVER,
+	LABPM_ATTR_DNAT_V6,
 	__LABPM_ATTR_MAX,
 };
 #define LABPM_ATTR_MAX (__LABPM_ATTR_MAX + 1)
@@ -273,6 +303,13 @@ enum labpm_cmd{
 	LABPM_CMD_APPLE_PRIV,
 	LABPM_CMD_APPLE_PRIV_MAC,
 	LABPM_CMD_CLOUD_SERVER,
+	LABPM_CMD_APPLE_PRIV_V6,
+	LABPM_CMD_INIT_V6,
+	LABPM_CMD_UDP_INIT_V6,
+	LABPM_CMD_UNSAFE_IP_V6,
+	LABPM_CMD_MUSIC_IP_V6,
+	LABPM_CMD_UNSAFE_YOUTUBE_IP_V6,
+	LABPM_CMD_SS_IP_V6,
 	LABPM_CMD_MAX
 };
 
@@ -293,7 +330,8 @@ static struct nla_policy labpm_genl_policy[__LABPM_ATTR_MAX + 1]  = {
 	[LABPM_ATTR_FRAGMENT_TUPLE] = {.len = sizeof(struct gry_fragment_tuple_payload_t)},
 	[LABPM_ATTR_APPLE_PRIV] = {.type = NLA_U32},
 	[LABPM_ATTR_CLOUD_SERVER] = {.type = NLA_U32},
-	[LABPM_ATTR_APPLE_PRIV_MAC] = {.len = sizeof(apple_priv_mac_t)}
+	[LABPM_ATTR_APPLE_PRIV_MAC] = {.len = sizeof(apple_priv_mac_t)},
+	[LABPM_ATTR_DNAT_V6] = {.type = NLA_BINARY, .len = sizeof(struct in6_addr)}
 };
 
 // create the labpm_genl_family structure
@@ -324,13 +362,19 @@ static struct genl_family gry_ra_genl_family = {
 
 
 struct genl_info *info = NULL;
+struct genl_info *info_v6 = NULL;
+
 struct genl_info *udp_info = NULL;
+struct genl_info *udp_info_v6 = NULL;
 #if 0
 struct genl_info *ra_info = NULL;
 #endif
 
 int safesearchIps[10];
-int safesearchCount = 0;
+struct in6_addr safesearchIps_6[10];
+
+int safesearch_count = 0;
+int safesearch_count_v6 = 0;
 
 #if PORTSCAN_ENABLED
 static struct proc_dir_entry *parent_dir;
@@ -400,9 +444,9 @@ struct normal_port_scan_t {
 };
 
 typedef struct {
-    int len;
-    char databuff[ETH_FRAME_LEN];
-    char if_name[16];
+	int len;
+	char databuff[ETH_FRAME_LEN];
+	char if_name[16];
 } vpnnf_pack;
 
 // variable to store the tcp normal scan data
@@ -461,7 +505,7 @@ void init_data_storage(void){
 void clear_data_storage(void){
 	tcp_special_nodes.node_count = 0;
 	memset(tcp_special_nodes.nodes, 0, NO_OF_DEVICES * sizeof(struct tcp_special_data_t));
-	
+
 	tcp_normal_scan.node_count = 0;
 	memset(tcp_normal_scan.nodes, 0, NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t));
 }
@@ -470,7 +514,7 @@ void clear_data_storage(void){
 void clear_data_storage_buffer(void){
 	tcp_special_nodes_buf.node_count = 0;
 	memset(tcp_special_nodes_buf.nodes, 0, NO_OF_DEVICES * sizeof(struct tcp_special_data_t));
-	
+
 	tcp_normal_scan_buf.node_count = 0;
 	memset(tcp_normal_scan_buf.nodes, 0, NO_OF_DEVICES * sizeof(struct normal_port_scan_data_t));
 }
@@ -488,7 +532,7 @@ void free_data_storage(void){
 	if(tcp_special_nodes_buf.nodes){
 		kfree(tcp_special_nodes_buf.nodes);
 	}
-	
+
 	if(tcp_normal_scan_buf.nodes){
 		kfree(tcp_normal_scan_buf.nodes);
 	}
@@ -571,17 +615,24 @@ void add_tcp_normal_scan_to_store(unsigned char *mac, int len, unsigned int port
 
 static inline u32 pntoh24(const void *p)
 {
-    return (u32)*((const u8 *)(p)+0)<<16|
-           (u32)*((const u8 *)(p)+1)<<8|
-           (u32)*((const u8 *)(p)+2)<<0;
+	return (u32)*((const u8 *)(p)+0)<<16|
+		(u32)*((const u8 *)(p)+1)<<8|
+		(u32)*((const u8 *)(p)+2)<<0;
 }
 
 static inline u32 pntoh32(const void *p)
 {
-    return (u32)*((const u8 *)(p)+0)<<24|
-           (u32)*((const u8 *)(p)+1)<<16|
-           (u32)*((const u8 *)(p)+2)<<8|
-           (u32)*((const u8 *)(p)+3)<<0;
+	return (u32)*((const u8 *)(p)+0)<<24|
+		(u32)*((const u8 *)(p)+1)<<16|
+		(u32)*((const u8 *)(p)+2)<<8|
+		(u32)*((const u8 *)(p)+3)<<0;
+}
+
+// Function to check if the IPv6 address is link-local
+int is_link_local_ipv6(struct in6_addr addr_v6) {
+	// Check if the address falls in the link-local range (FE80::/10)
+	// First 10 bits must be 1111111010 (0xFE80 is 1111111010000000 in binary)
+	return ((addr_v6.s6_addr16[0]  &  0xFFF0) == 0xFE80);
 }
 
 /* Returns the QUIC draft version or 0 if not applicable. */
@@ -655,6 +706,29 @@ static int labnf_set_labpm_portid(struct sk_buff *skb, struct genl_info *info_re
 	return 0;
 }
 
+// Function responsible for storing the userspace application id for LABPM_DNAT
+// into the kernel space for communication
+static int labnf_set_labpm_portid_v6(struct sk_buff *skb, struct genl_info *info_recv){
+	pr_info("GRY_DPI_KERN: labnf_set_labpm_portid_v6: init done\n");
+	write_lock_bh(&genl_rwlock);
+	if(info_v6 != NULL){
+		printk("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid_v6\n");
+		write_unlock_bh(&genl_rwlock);
+		return 0;
+	}
+	info_v6 = gry_safe_alloc(sizeof(struct genl_info));
+	if(!info_v6) {
+		write_unlock_bh(&genl_rwlock);
+		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_portid_v6\n");
+		return 0;
+	}
+	memset(info_v6, 0, sizeof(struct genl_info));
+	memcpy(info_v6, info_recv, sizeof(struct genl_info));
+	printk("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid_v6\n");
+	write_unlock_bh(&genl_rwlock);
+	return 0;
+}
+
 // Function responsible for storing the userspace application id for LABPM_UDP
 // into the kernel space for communication
 static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *info_recv){
@@ -669,11 +743,35 @@ static int labnf_set_labpm_udp_portid(struct sk_buff *skb, struct genl_info *inf
 		write_unlock_bh(&genl_rwlock);
 		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid\n");
 		return 0;
-	} 
+	}
 	memset(udp_info, 0, sizeof(struct genl_info));
 	memcpy(udp_info, info_recv, sizeof(struct genl_info));
 	write_unlock_bh(&genl_rwlock);
 	pr_info("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid_udp\n");
+	return 0;
+}
+
+// Function responsible for storing the userspace application id for LABPM_UDP
+// into the kernel space for communication
+static int labnf_set_labpm_udp_portid_v6(struct sk_buff *skb, struct genl_info *info_recv){
+	printk(KERN_INFO "GRY_DPI_KERN: labnf_set_labpm_udp_portid_v6: init done\n");
+	write_lock_bh(&genl_rwlock);
+	if(udp_info_v6 != NULL){
+		printk(KERN_ERR "GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid_v6\n");
+		write_unlock_bh(&genl_rwlock);
+		return 0;
+	}
+	udp_info_v6 = gry_safe_alloc(sizeof(struct genl_info));
+	if(!udp_info_v6){
+		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, labnf_set_labpm_udp_portid_v6\n");
+		write_unlock_bh(&genl_rwlock);
+		return 0;
+	}
+
+	memset(udp_info_v6, 0, sizeof(struct genl_info));
+	memcpy(udp_info_v6, info_recv, sizeof(struct genl_info));
+	printk("GRY_DPI_KERN: allocated genl_info labnf_set_labpm_portid_udp\n");
+	write_unlock_bh(&genl_rwlock);
 	return 0;
 }
 
@@ -808,20 +906,20 @@ static int labnf_flush_table(struct sk_buff *skb, struct genl_info *info_rcv) {
 	struct hlist_node *tmp;
 	struct hlist_node *tmp1;
 	//if (info_rcv->attrs[LABPM_ATTR_UNSAFE_IP] != NULL) {
-		spin_lock_bh(&labnf_unsafe_ip_lock);
-		hash_for_each_safe(labnf_unsafe_ip_hash, bkt, tmp, peer, hnode){
-				hash_del(&peer->hnode);
-				kfree(peer);
-		}
-		spin_unlock_bh(&labnf_unsafe_ip_lock);
-		
-		spin_lock_bh(&labnf_unsafe_youtube_ip_lock);
-		hash_for_each_safe(labnf_unsafe_youtube_ip_hash, bkt, tmp1, peer, hnode){
-				hash_del(&peer->hnode);
-				kfree(peer);
-		}
-		spin_unlock_bh(&labnf_unsafe_youtube_ip_lock);
-		
+	spin_lock_bh(&labnf_unsafe_ip_lock);
+	hash_for_each_safe(labnf_unsafe_ip_hash, bkt, tmp, peer, hnode){
+		hash_del(&peer->hnode);
+		kfree(peer);
+	}
+	spin_unlock_bh(&labnf_unsafe_ip_lock);
+
+	spin_lock_bh(&labnf_unsafe_youtube_ip_lock);
+	hash_for_each_safe(labnf_unsafe_youtube_ip_hash, bkt, tmp1, peer, hnode){
+		hash_del(&peer->hnode);
+		kfree(peer);
+	}
+	spin_unlock_bh(&labnf_unsafe_youtube_ip_lock);
+
 	//}
 	return 0;    
 }
@@ -878,11 +976,37 @@ static int labnf_allow_safesearch_ip(struct sk_buff *skb, struct genl_info *info
 
 	// perform the writing of safesearch ips 
 	write_lock_bh(&ss_rwlock);
-	safesearchCount = sscanf(buffer, "%x,%x,%x,%x,%x",&safesearchIps[0],&safesearchIps[1],&safesearchIps[2],&safesearchIps[3],&safesearchIps[4]);
+	safesearch_count = sscanf(buffer, "%x,%x,%x,%x,%x",&safesearchIps[0],&safesearchIps[1],&safesearchIps[2],&safesearchIps[3],&safesearchIps[4]);
 	write_unlock_bh(&ss_rwlock);
-	pr_info("GRY_DPI_KERN: ssips_count: [%d]\n", safesearchCount);
+	pr_info("GRY_DPI_KERN: ssips_count: [%d]\n", safesearch_count);
 	return 0;
 }
+
+// Function responsible for handling safesearch for IPV6
+static int labnf_allow_safesearch_ip_v6(struct sk_buff *skb, struct genl_info *info_recv){
+	struct nlattr *na = info_recv->attrs[LABPM_ATTR_DNAT_V6];
+	struct in6_addr ip6_addr;
+	u32 idx;
+	u32 size_ip6 = sizeof(struct in6_addr);
+
+	if(!(info_recv->attrs[LABPM_ATTR_DNAT_V6])){
+		printk("GRY_DPI_KERN: failed allow_safesearch_ip_v6 \n");
+		return -EINVAL;
+	}
+	nla_memcpy(&ip6_addr, na, size_ip6);
+
+	for(idx = 1; idx < safesearch_count_v6 ; idx ++);
+
+	write_lock_bh(&ss_rwlock_v6);
+	memcpy(&safesearchIps_6[idx], &ip6_addr, size_ip6);
+	safesearch_count_v6 = safesearch_count_v6 + 1;
+	write_unlock_bh(&ss_rwlock_v6);
+
+	return 0;
+}
+
+
+
 
 // Function responsible for adding or removing the mac address to safe search list
 static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info *info_recv){
@@ -994,7 +1118,7 @@ static int labnf_add_ip_to_unsafe_list(struct sk_buff *skb, struct genl_info *in
 		}
 	}
 	spin_unlock_bh(&labnf_unsafe_ip_lock);
-	
+
 	peer = gry_safe_alloc(sizeof(safe_mac_ip_));
 	if(peer == NULL){
 		return -ENOMEM;
@@ -1005,6 +1129,42 @@ static int labnf_add_ip_to_unsafe_list(struct sk_buff *skb, struct genl_info *in
 	spin_lock_bh(&labnf_unsafe_ip_lock);
 	hash_add(labnf_unsafe_ip_hash, &peer->hnode, key);
 	spin_unlock_bh(&labnf_unsafe_ip_lock);
+	return 0;
+}
+
+// Function responsible for adding ipv6 address to unsafe ip list
+static int labnf_add_ip_to_unsafe_list_v6(struct sk_buff *skb, struct genl_info *info_recv){
+	struct nlattr *na = info_recv->attrs[LABPM_ATTR_DNAT_V6];
+	struct in6_addr unsafe_ip_v6;
+	safe_mac_ip_v6_ *peer;
+	int key;
+	u32 bkt;
+	if(!info_recv->attrs[LABPM_ATTR_DNAT_V6]){
+		printk("GRY_DPI_KERN: error labnf_add_ip_to_unsafe_list_v6\n");
+		return -EINVAL;
+	}
+	nla_memcpy(&unsafe_ip_v6, na, sizeof(struct in6_addr));
+	key = HASH_IP6(&unsafe_ip_v6);
+
+	spin_lock_bh(&labnf_unsafe_ip_lock_v6);
+	hash_for_each(labnf_unsafe_ip_hash_v6, bkt, peer, hnode){
+		if(!memcmp(&peer->unsafe_ip_v6 , &unsafe_ip_v6, sizeof(struct in6_addr))){
+			spin_unlock_bh(&labnf_unsafe_ip_lock_v6);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&labnf_unsafe_ip_lock_v6);
+
+	peer = gry_safe_alloc(sizeof(safe_mac_ip_v6_));
+	if(peer == NULL){
+		return -ENOMEM;
+	}
+	memset(peer, 0, sizeof(safe_mac_ip_v6_));
+	memcpy(&peer->unsafe_ip_v6, &unsafe_ip_v6, sizeof(struct in6_addr));
+
+	spin_lock_bh(&labnf_unsafe_ip_lock_v6);
+	hash_add(labnf_unsafe_ip_hash_v6, &peer->hnode, key);
+	spin_unlock_bh(&labnf_unsafe_ip_lock_v6);
 	return 0;
 }
 
@@ -1141,6 +1301,8 @@ static int labnf_add_del_mac_to_apc_list(struct sk_buff *skb, struct genl_info *
 	return 0;
 }
 
+
+
 static int add_mip_into_hash(int ipaddr){
 
 	int key = HASH(ipaddr);
@@ -1154,6 +1316,22 @@ static int add_mip_into_hash(int ipaddr){
 	spin_lock_bh(&labnf_music_ip_lock);
 	hash_add(labnf_music_ip_hash, &peer->hnode, key);
 	spin_unlock_bh(&labnf_music_ip_lock);
+	return 0;
+}
+
+static int add_mip_into_hash_v6(struct in6_addr ipaddr_v6){
+
+	int key = HASH_IP6(&ipaddr_v6);
+	musical_ip_v6_ *peer=NULL;
+
+	peer = gry_safe_alloc(sizeof(musical_ip_v6_));
+	if(peer == NULL)
+		return -ENOMEM;
+	memset(peer, 0, sizeof(musical_ip_v6_));
+	memcpy(&peer->music_ip6, &ipaddr_v6, sizeof(struct in6_addr));
+	spin_lock_bh(&labnf_music_ip_lock_v6);
+	hash_add(labnf_music_ip_hash_v6, &peer->hnode, key);
+	spin_unlock_bh(&labnf_music_ip_lock_v6);
 	return 0;
 }
 
@@ -1190,6 +1368,42 @@ static int labnf_add_music_ip_list(struct sk_buff *skb, struct genl_info *info_r
 		spin_unlock_bh(&labnf_music_ip_lock);	
 		if(!ip_preset)
 			add_mip_into_hash(musicappiplist.ipaddr[i]);	
+	}
+	return 0;
+}
+
+static int labnf_add_music_ip_list_v6(struct sk_buff *skb, struct genl_info *info_rcv){
+	bool ip_present=false;
+	struct in6_addr musicip_v6;
+	struct nlattr *na = NULL;
+	int recv_len = 0;
+	u32 bkt = 0;
+	musical_ip_v6_ *mpeer=NULL;
+
+	if(!info_rcv->attrs[LABPM_ATTR_DNAT_V6]) {
+		return -EINVAL;
+	}
+
+	recv_len = nla_len(info_rcv->attrs[LABPM_ATTR_DNAT_V6]);
+	if(recv_len != sizeof(struct in6_addr)){
+		printk("set music ipv6 list failed: incorrect length\n");
+		return 0;
+	}
+
+	na = info_rcv->attrs[LABPM_ATTR_DNAT_V6];
+	nla_memcpy(&musicip_v6, na, recv_len);
+
+	spin_lock_bh(&labnf_music_ip_lock_v6);
+	hash_for_each(labnf_music_ip_hash_v6, bkt, mpeer, hnode){   
+		if (!memcmp(&mpeer->music_ip6, &musicip_v6, sizeof(struct in6_addr))) {
+			ip_present=true;
+			break;
+		}
+	}
+	spin_unlock_bh(&labnf_music_ip_lock_v6);	
+	if(!ip_present)
+	{
+		add_mip_into_hash_v6(musicip_v6);
 	}
 	return 0;
 }
@@ -1246,6 +1460,46 @@ static int labnf_peer_inet_paused(char *mac, int ipaddr, int port){
 	return PAUSED;
 }
 
+static int labnf_peer_inet_paused_v6(char *mac, struct in6_addr ipaddr6, int port){
+	redirect_ *peer;
+	u32 bkt;
+	musical_ip_v6_ *mpeer;
+	u32 musicBkt;
+
+	spin_lock_bh(&labnf_redirect_lock);
+	hash_for_each(labnf_redirect_hash, bkt, peer, hnode){
+		if(memcmp(peer->mac, mac, ETH_ALEN) == 0){
+			if(peer->inet_pause == 1){
+				if(peer->inet_bedtime_music_allowed == 0){
+					// 0 - not allowed, 1 allowed
+					spin_unlock_bh(&labnf_redirect_lock);
+					return PAUSED;
+				}
+				else {
+					spin_lock_bh(&labnf_music_ip_lock_v6);
+					hash_for_each(labnf_music_ip_hash_v6, musicBkt, mpeer, hnode){
+						if(!memcmp(&mpeer->music_ip6, &ipaddr6, sizeof(struct in6_addr))){
+							spin_unlock_bh(&labnf_music_ip_lock_v6);
+							spin_unlock_bh(&labnf_redirect_lock);
+							return UNPAUSED;
+						}
+					}
+					if(port == 4070){    //port number 4070 is used by spotify streaming
+						spin_unlock_bh(&labnf_music_ip_lock_v6);
+						spin_unlock_bh(&labnf_redirect_lock);
+						return UNPAUSED;
+					}
+					spin_unlock_bh(&labnf_music_ip_lock_v6);
+					spin_unlock_bh(&labnf_redirect_lock);
+					return PAUSED;
+				}
+			}
+		}
+	}
+	spin_unlock_bh(&labnf_redirect_lock);
+	return UNPAUSED;
+}
+
 // packet processing functions
 static int is_handshake_packet(struct tcphdr *tcph){
 	if(tcph->urg == 0 && tcph->ack == 0 && tcph->psh == 0 && tcph->rst == 0 && tcph->syn == 1 && tcph->fin == 0){
@@ -1288,8 +1542,8 @@ static int can_send_tcp_to_labrador(struct tcphdr *tcph, uint16_t dest_port, cha
 	} else if ((tcph->psh == 1) && (((data[0] == 0x45) && (data[1] == 0x44) && (data[2] == 0x00) && (data[3] == 0x01)) ||
 				((data[0] == 0x00) && (data[1] == 0x00) && (data[2] == 0x04) && (data[3] == 0x08)) ||
 				((data[0] == 0x50) && (data[1] == 0x4f) && (data[2] == 0x53) && (data[3] == 0x54) && (data[4] == 0x20) && (data[5] == 0x2f)))){
-			// Whatsapp messages
-			return 1;
+		// Whatsapp messages
+		return 1;
 	} else if(dest_port == 443 && data[0] == 0x14){
 		int oth_len = LEN_NTOHS(data);
 		data += TLS_TYPE_VER_LEN;
@@ -1368,6 +1622,45 @@ static inline int add_ip_to_unsafe_youtube_list(struct sk_buff *skb, struct genl
 	return 0;
 }
 
+static inline int add_ip_to_unsafe_youtube_list_v6(struct sk_buff *skb, struct genl_info *info_rcv)
+{
+	struct nlattr *na = info_rcv->attrs[LABPM_ATTR_DNAT_V6];
+	struct in6_addr unsafe_youtube_ip_v6;
+	safe_mac_ip_v6_ *peer;
+	int key;
+	u32 bkt;
+
+	if(info_rcv == NULL) {
+		return -EINVAL;
+	}
+
+	if(!na) {
+		return -EINVAL;
+	}
+
+	nla_memcpy(&unsafe_youtube_ip_v6, na, sizeof(struct in6_addr));
+	key = HASH_IP6(&unsafe_youtube_ip_v6);
+	spin_lock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+	hash_for_each(labnf_unsafe_youtube_ip_hash_v6, bkt, peer, hnode){
+		if (!memcmp(&peer->unsafe_ip_v6 , &unsafe_youtube_ip_v6, sizeof(struct in6_addr))) {
+			spin_unlock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+
+	peer = kmalloc(sizeof(safe_mac_ip_v6_), GFP_ATOMIC);
+	if(peer == NULL)
+		return -ENOMEM;
+	memset(peer, 0, sizeof(safe_mac_ip_v6_));
+	memcpy(&peer->unsafe_ip_v6 , &unsafe_youtube_ip_v6, sizeof(struct in6_addr));
+
+	spin_lock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+	hash_add(labnf_unsafe_youtube_ip_hash_v6, &peer->hnode, key);
+	spin_unlock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+	return 0;
+}
+
 static int labnf_is_unsafe_ip(uint32_t unsafe_ip)
 {
 	safe_mac_ip_ *peer;
@@ -1384,21 +1677,53 @@ static int labnf_is_unsafe_ip(uint32_t unsafe_ip)
 	return 0;
 }
 
+static int labnf_is_unsafe_ip_v6(struct in6_addr unsafe_ip)
+{
+	safe_mac_ip_v6_ *peer;
+	u32 bkt;
+	spin_lock_bh(&labnf_unsafe_ip_lock_v6);
+	hash_for_each(labnf_unsafe_ip_hash_v6, bkt, peer, hnode){
+		if(memcmp(&peer->unsafe_ip_v6, &unsafe_ip, sizeof(struct in6_addr)) == 0){
+			spin_unlock_bh(&labnf_unsafe_ip_lock_v6);
+			return 1;
+		}
+	}
+	spin_unlock_bh(&labnf_unsafe_ip_lock_v6);
+	return 0;
+}
+
 static inline int labnf_is_unsafe_youtube_ip(int unsafe_youtube_ip)
 {
-        safe_mac_ip_ *peer;
-        u32 bkt;
+	safe_mac_ip_ *peer;
+	u32 bkt;
 
-        spin_lock_bh(&labnf_unsafe_youtube_ip_lock);
-        hash_for_each(labnf_unsafe_youtube_ip_hash, bkt, peer, hnode){
-                if(peer->unsafe_ip == unsafe_youtube_ip){
-                        spin_unlock_bh(&labnf_unsafe_youtube_ip_lock);
-                        return 1;
-                }
-        }
-        spin_unlock_bh(&labnf_unsafe_youtube_ip_lock);
-        return 0;
+	spin_lock_bh(&labnf_unsafe_youtube_ip_lock);
+	hash_for_each(labnf_unsafe_youtube_ip_hash, bkt, peer, hnode){
+		if(peer->unsafe_ip == unsafe_youtube_ip){
+			spin_unlock_bh(&labnf_unsafe_youtube_ip_lock);
+			return 1;
+		}
+	}
+	spin_unlock_bh(&labnf_unsafe_youtube_ip_lock);
+	return 0;
 }
+
+static inline int labnf_is_unsafe_youtube_ip_v6( struct in6_addr unsafe_youtube_ip_v6)
+{
+	safe_mac_ip_v6_ *peer;
+	u32 bkt;
+
+	spin_lock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+	hash_for_each(labnf_unsafe_youtube_ip_hash_v6, bkt, peer, hnode){
+		if(memcmp(&peer->unsafe_ip_v6, &unsafe_youtube_ip_v6, sizeof(struct in6_addr)) == 0){
+			spin_unlock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+			return 1;
+		}
+	}
+	spin_unlock_bh(&labnf_unsafe_youtube_ip_lock_v6);
+	return 0;
+}
+
 
 static inline int add_del_mac_to_safe_youtube_list(struct sk_buff *skb, struct genl_info *info_rcv)
 {
@@ -1493,18 +1818,18 @@ static int labnf_is_safe_mac(char *mac)
 
 static inline int labnf_is_safe_youtube_mac(char *mac) {
 
-        safe_mac_ip_ *peer;
-        u32 bkt;
-        // First
-        spin_lock_bh(&labnf_safe_youtube_mac_lock);
-        hash_for_each(labnf_safe_youtube_mac_hash, bkt, peer, hnode){
-                if (memcmp(mac, peer->mac, ETH_ALEN) == 0){
-                        spin_unlock_bh(&labnf_safe_youtube_mac_lock);
-                        return 1;
-                }
-        }
-        spin_unlock_bh(&labnf_safe_youtube_mac_lock);
-        return 0;
+	safe_mac_ip_ *peer;
+	u32 bkt;
+	// First
+	spin_lock_bh(&labnf_safe_youtube_mac_lock);
+	hash_for_each(labnf_safe_youtube_mac_hash, bkt, peer, hnode){
+		if (memcmp(mac, peer->mac, ETH_ALEN) == 0){
+			spin_unlock_bh(&labnf_safe_youtube_mac_lock);
+			return 1;
+		}
+	}
+	spin_unlock_bh(&labnf_safe_youtube_mac_lock);
+	return 0;
 }
 
 // NETLINK MSG ATTRIBUTES FOR SENDING THE PACKET INFORMATION TO APPLICATION LAYER
@@ -1514,7 +1839,7 @@ static inline int labnf_is_safe_youtube_mac(char *mac) {
 #define LABNF_GSOLENGTH 3
 #define LABNF_BUFFER 4
 
-static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsigned int gso_length, uint8_t protocol){
+static int labnf_send_packet(struct sk_buff *skb, int domain, int protocol, int len, unsigned int gso_length){
 	struct sk_buff *msg;
 	void *hdr;
 	struct genl_info temp_info = {0};
@@ -1522,22 +1847,41 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 	int result = 0;
 	unsigned char *data_ptr = NULL;
 	unsigned int data_len = 0;
-
-	write_lock_bh(&genl_rwlock);
-	if(info == NULL){
-		write_unlock_bh(&genl_rwlock);
+	if(!skb){
 		return -1;
 	}
-	if(protocol == IPPROTO_TCP){
-		// info variable is the TCP genl_info using LABPM_DNAT
+
+	write_lock_bh(&genl_rwlock);
+	if(domain == AF_INET && protocol == IPPROTO_TCP) {
+		// info variable is the TCP genl_info using LABPM_CMD_INIT
+		if(info == NULL){
+			write_unlock_bh(&genl_rwlock);
+			return -1;
+		}
 		memcpy(&temp_info, info, sizeof(struct genl_info));
-	} else if(protocol == IPPROTO_UDP){
-		// udp_info variable is the UDP genl_info using LABPM_UDP
+	} else if(domain == AF_INET && protocol == IPPROTO_UDP) {
+		// udp_info variable is the UDP genl_info using LABPM_CMD_UDP_INIT
+		if(udp_info == NULL){
+			write_unlock_bh(&genl_rwlock);
+			return -1;
+		}
 		memcpy(&temp_info, udp_info, sizeof(struct genl_info));
+	} else if(domain == AF_INET6 && protocol == IPPROTO_TCP){
+		// info_v6 variable is the IPv6 TCP genl_info using LABPM_CMD_INIT_V6
+		if(info_v6 == NULL){
+			write_unlock_bh(&genl_rwlock);
+			return -1;
+		}
+		memcpy(&temp_info, info_v6, sizeof(struct genl_info));
+	} else if(domain == AF_INET6 && protocol == IPPROTO_UDP){
+		// info_udp_v6 variable is the IPv6 UDP genl_info using LABPM_CMD_UDP_INIT_V6
+		if(udp_info_v6 == NULL){
+			write_unlock_bh(&genl_rwlock);
+			return -1;
+		}
+		memcpy(&temp_info, udp_info_v6, sizeof(struct genl_info));
 	} else {
-		// Incorrect protocol
 		write_unlock_bh(&genl_rwlock);
-		pr_err("GRY_DPI_KERN: labnf_send_packet: protocol error\n");
 		return -1;
 	}
 	write_unlock_bh(&genl_rwlock);
@@ -1577,7 +1921,7 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 	/* Additional bounds check */
 	if(data_ptr < skb->head || data_ptr + len > skb_tail_pointer(skb)){
 		pr_err("GRY_DPI_KERN: Invalid buffer bounds: ptr=%p len=%d head=%p tail=%p\n",
-		       data_ptr, len, skb->head, skb_tail_pointer(skb));
+				data_ptr, len, skb->head, skb_tail_pointer(skb));
 		return -1;
 	}
 
@@ -1600,9 +1944,9 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 		return -1;
 	}
 #endif
-	
+
 	// Add the interface name from sk_buff
-	if(nla_put_string(msg, LABNF_IFNAME, dev_name)){
+	if(nla_put_string(msg, LABNF_IFNAME, skb->dev->name)){
 		genlmsg_cancel(msg, hdr);
 		nlmsg_free(msg);
 		return -1;
@@ -1614,7 +1958,7 @@ static int labnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsig
 		nlmsg_free(msg);
 		return -1;
 	}
-	
+
 	// Add the packet buffer in binary format
 	if(nla_put(msg, LABNF_BUFFER, len, data_ptr)){
 		genlmsg_cancel(msg, hdr);
@@ -1636,7 +1980,7 @@ static unsigned int gry_skb_gso_network_seglen(struct sk_buff *skb){
 	unsigned int hdr_len = 0;
 	unsigned int thlen = 0;
 
-       	hdr_len = skb_transport_header(skb) - skb_network_header(skb);
+	hdr_len = skb_transport_header(skb) - skb_network_header(skb);
 
 	if(skb->encapsulation){
 		thlen = skb_inner_transport_header(skb) - skb_transport_header(skb);
@@ -1657,23 +2001,18 @@ static unsigned int gry_skb_gso_network_seglen(struct sk_buff *skb){
 	return hdr_len + thlen + shinfo->gso_size;
 }
 
-static void labnf_parse_history(struct sk_buff *skb, uint8_t protocol){
-	int pack_len = 0;
-	struct iphdr *iph;
-	iph = (struct iphdr*)skb_network_header(skb);
-	pack_len = ntohs(iph->tot_len) + ETH_HLEN;
-
+static void labnf_parse_history(struct sk_buff *skb, int domain, uint8_t protocol, int pack_len){
 	if(protocol == IPPROTO_TCP && skb_is_gso(skb) == 1){
 		// call GSO functions only if the protocol is TCP
-		if(labnf_send_packet(skb, pack_len, skb->dev->name, gry_skb_gso_network_seglen(skb), protocol) < 0){
-			if(labnf_send_packet(skb, pack_len, skb->dev->name, gry_skb_gso_network_seglen(skb), protocol) < 0){
+		if(labnf_send_packet(skb, domain, protocol, pack_len, gry_skb_gso_network_seglen(skb)) < 0){
+			if(labnf_send_packet(skb, domain, protocol, pack_len, gry_skb_gso_network_seglen(skb)) < 0){
 				pr_debug("GRY_DPI_KERN: NETLINK_ERROR_RE_TX: [%u]\n", protocol);
 			}
 		}
 	} else {
 		// GSO functions are ignored in UDP Protocol or non GSO packets
-		if(labnf_send_packet(skb, pack_len, skb->dev->name, 0, protocol) < 0){
-			if(labnf_send_packet(skb, pack_len, skb->dev->name, 0, protocol) < 0){
+		if(labnf_send_packet(skb, domain, protocol, pack_len, 0) < 0){
+			if(labnf_send_packet(skb, domain, protocol, pack_len, 0) < 0){
 				pr_debug("GRY_DPI_KERN: NETLINK_ERROR_RE_TX: [%u]\n", protocol);
 			}
 		}
@@ -1729,14 +2068,14 @@ int can_send_udp_to_labrador(unsigned char *data,int len)
 		if(quic_draft_version(version) == 46) {
 			return 1;
 		} else if(quic_draft_version(version) >= 11) {
-                        /*Check if it is initial/ORTT/Handshake packet */
-                        if((long_packet_type == QUIC_LPT_INITIAL) || (long_packet_type == QUIC_LPT_0RTT) || 
-				( long_packet_type == QUIC_LPT_HANDSHAKE) || (long_packet_type == QUIC_LPT_RETRY)) {
+			/*Check if it is initial/ORTT/Handshake packet */
+			if((long_packet_type == QUIC_LPT_INITIAL) || (long_packet_type == QUIC_LPT_0RTT) || 
+					( long_packet_type == QUIC_LPT_HANDSHAKE) || (long_packet_type == QUIC_LPT_RETRY)) {
 				return 1;
-			 }
+			}
 		}
 	}
-  	return 0;
+	return 0;
 }
 
 int isAUS(unsigned char *data,int len) {
@@ -1806,8 +2145,8 @@ static unsigned int gry_portscan_hook(void *priv, struct sk_buff *skb, const str
 					saddr_h = ntohl(iph->saddr);
 					//daddr_h = ntohl(iph->daddr);
 					s_valid = (CLASS_A_START <= saddr_h && saddr_h < CLASS_A_END) ||
-						       (CLASS_B_START <= saddr_h && saddr_h < CLASS_B_END) || 
-						       (CLASS_C_START <= saddr_h && saddr_h < CLASS_C_END);
+						(CLASS_B_START <= saddr_h && saddr_h < CLASS_B_END) || 
+						(CLASS_C_START <= saddr_h && saddr_h < CLASS_C_END);
 
 					if(s_valid) {
 						// TCP packet
@@ -1862,6 +2201,22 @@ static int is_apple_priv_ip_block_list(uint32_t sip, uint32_t dip){
 		}
 	}
 	spin_unlock_bh(&labnf_apple_priv_lock);
+	return 0;
+}
+
+static int is_apple_priv_block_list_v6(struct in6_addr sip, struct in6_addr dip){
+	u32 bkt;
+	apple_priv_ip_v6_ *peer;
+
+	spin_lock_bh(&labnf_apple_priv_lock_v6);
+	hash_for_each(labnf_apple_priv_hash_v6, bkt, peer, hnode){
+		if (!memcmp(&peer->ipaddr_v6, &sip, sizeof(struct in6_addr)) ||
+				!memcmp(&peer->ipaddr_v6, &dip, sizeof(struct in6_addr))) {
+			spin_unlock_bh(&labnf_apple_priv_lock_v6);
+			return 1;
+		}
+	}
+	spin_unlock_bh(&labnf_apple_priv_lock_v6);
 	return 0;
 }
 
@@ -1958,6 +2313,48 @@ static int apple_priv_browse_block_list(struct sk_buff *skb, struct genl_info *i
 	return 0;
 }
 
+static int apple_priv_browse_block_list_v6(struct sk_buff *skb, struct genl_info *info_recv){
+	struct nlattr *na;
+	int recv_len = 0;
+	u32 bkt;
+	u32 key;
+	apple_priv_ip_v6_ *peer;
+	struct in6_addr ipaddr_v6;
+	if(!info_recv->attrs[LABPM_ATTR_DNAT_V6]){
+		printk(KERN_ERR "GRY_APPLE_PRIV_V6: invalid payload\n");
+		return -1;
+	}       
+	na = info_recv->attrs[LABPM_ATTR_DNAT_V6];
+	recv_len = nla_len(info_recv->attrs[LABPM_ATTR_DNAT_V6]);
+	if(recv_len != sizeof(struct in6_addr)){
+		printk(KERN_ERR "GRY_APPLE_PRIV_V6: invalid size\n");
+		return -1;
+	}
+
+	nla_memcpy(&ipaddr_v6, na, recv_len);
+
+
+	printk(KERN_INFO "GRY_APPLE_PRIV_V6: Recv:%pI6\n", &ipaddr_v6);
+	spin_lock_bh(&labnf_apple_priv_lock_v6);
+	hash_for_each(labnf_apple_priv_hash_v6, bkt, peer, hnode){
+		if(!memcmp(&peer->ipaddr_v6,&ipaddr_v6,sizeof(ipaddr_v6))){
+			spin_unlock_bh(&labnf_apple_priv_lock_v6);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&labnf_apple_priv_lock_v6);
+	peer = kmalloc(sizeof(apple_priv_ip_v6_), GFP_ATOMIC);
+	if(peer == NULL)
+		return -1;
+	memset(peer, 0, sizeof(apple_priv_ip_v6_));
+	memcpy(&peer->ipaddr_v6, &ipaddr_v6,sizeof(struct in6_addr));
+	key = HASH_IP6(&ipaddr_v6);
+	spin_lock_bh(&labnf_apple_priv_lock_v6);
+	hash_add(labnf_apple_priv_hash_v6, &peer->hnode, key);
+	spin_unlock_bh(&labnf_apple_priv_lock_v6);
+	return 0;
+}
+
 static int is_apple_priv_browse_mac(char *mac){
 	u32 bkt;
 	apple_priv_mac_ *peer;
@@ -2001,7 +2398,7 @@ static int apple_priv_browse_mac_list(struct sk_buff *skb, struct genl_info *inf
 			}
 		}
 		spin_unlock_bh(&labnf_apple_priv_lock);
-		
+
 		peer = (apple_priv_mac_*)gry_safe_alloc(sizeof(apple_priv_mac_));
 		if(peer == NULL){
 			pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: mac gry_safe_alloc failed\n");
@@ -2056,6 +2453,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 	int idx = 0;
 	int canSendResult = 0;
 	int rabExists = 0;
+	int packet_length = 0;
 	struct gry_fragment_tuple_t fragTuple = {0};
 	if(!skb)
 		return NF_ACCEPT;
@@ -2072,7 +2470,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 #endif
 		return NF_ACCEPT;
 	}
-	
+
 	/* Linearize SKB early if needed - ensures all packet data access is safe */
 	if(skb_is_nonlinear(skb)){
 		if(skb_linearize(skb)){
@@ -2080,7 +2478,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_ACCEPT;
 		}
 	}
-	
+
 	eth_h = eth_hdr(skb);
 	if(!eth_h){
 #ifdef ENABLE_GRY_MARK
@@ -2127,6 +2525,8 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		return NF_ACCEPT;
 	}
 
+	packet_length =  ntohs(iph->tot_len) + ETH_HLEN;
+
 	// UDP Protocol
 	if(iph->protocol == IPPROTO_UDP){
 		struct udphdr *udph = NULL;
@@ -2169,7 +2569,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(udp_payload, udp_payload_length)==1)) || (isStunFram(udp_payload, udp_payload_length)==1) || (isAUS(udp_payload, udp_payload_length)==1)){
 			// check for safe ip
 			read_lock_bh(&ss_rwlock);	
-			for(idx=0;idx<safesearchCount;idx++) {
+			for(idx=0;idx<safesearch_count;idx++) {
 				if(iph->daddr==safesearchIps[idx]) {
 					if(!device_paused){
 						// if safe search ip and device is not paused
@@ -2212,11 +2612,11 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 #endif
 					return NF_ACCEPT;
 				}
-				#ifdef SSLPROXY_BUILD
+#ifdef SSLPROXY_BUILD
 				if(labnf_is_apc_mac(mac)) {  // Drop if udp quic packet if its apc client
 					return NF_DROP;
 				}
-				#endif
+#endif
 				if(labnf_is_safe_youtube_mac(mac)){
 #ifdef ENABLE_GRY_MARK
 					gry_mark_skb(skb);
@@ -2224,7 +2624,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 					return NF_ACCEPT;
 				}
 			}
-			labnf_parse_history(skb, IPPROTO_UDP);
+			labnf_parse_history(skb, AF_INET, IPPROTO_UDP, packet_length);
 			return NF_DROP;
 		} else {
 			return NF_ACCEPT;
@@ -2266,7 +2666,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 #endif
 			return NF_ACCEPT;
 		}
-		
+
 		// Check the pause flag here
 		device_paused = labnf_peer_inet_paused(mac, iph->daddr, dest_port);
 
@@ -2302,7 +2702,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			if(gry_rab_get_tuple_element(&fragTuple) == 0){
 				// tuple found in RAB, send to labrador
 				//pr_debug("GRY_RAB_GET: SIZE FOR 2nd packet: %u for %u, port[%u],[%u], skb_is_gso[%d], [%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
-				labnf_parse_history(skb, IPPROTO_TCP);
+				labnf_parse_history(skb, AF_INET, IPPROTO_TCP, packet_length);
 				return NF_DROP;
 			}
 		}
@@ -2310,7 +2710,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 
 		if(canSendResult != 0){
 			read_lock_bh(&ss_rwlock);
-			for(idx=0; idx < safesearchCount; idx++){
+			for(idx=0; idx < safesearch_count; idx++){
 				if(iph->daddr == safesearchIps[idx]){
 					if(!device_paused){
 						// if safe search ip and device is not paused
@@ -2351,11 +2751,11 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 #endif
 					return NF_ACCEPT;
 				}
-				#ifdef SSLPROXY_BUILD
+#ifdef SSLPROXY_BUILD
 				if(labnf_is_apc_mac(mac)) {  // Drop if udp quic packet if its apc client
 					return NF_DROP;
 				}
-				#endif
+#endif
 				if(labnf_is_safe_youtube_mac(mac)){
 #ifdef ENABLE_GRY_MARK
 					gry_mark_skb(skb);
@@ -2386,7 +2786,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 				//printk("GRY_RAB_SET: SIZE FOR add RAB: %u for %u, port[%u],[%u], gso[%u], gso_len[%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
 			}
 			//printk("SIZE FOR ip header for inskb2 for unknown: %u for %u, port[%u],[%u], skb_is_gso[%d], [%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
-			labnf_parse_history(skb, IPPROTO_TCP);
+			labnf_parse_history(skb, AF_INET, IPPROTO_TCP, packet_length);
 			return NF_DROP;
 
 		} else {
@@ -2401,6 +2801,259 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 	return NF_ACCEPT;
 }
 
+static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_buff *skb, const struct nf_hook_state *state){
+	struct ethhdr *eth_h = NULL;
+	struct ipv6hdr *ip6h = NULL;
+	int device_paused = 0;
+	uint16_t src_port = 0;
+	uint16_t dest_port = 0;
+	char mac[ETH_ALEN] = {0};
+	char *data = NULL;
+	int canSendResult = 0;
+	u32 idx;
+	int rabExists = 0;
+	int packet_length = 0;
+
+	// Labrador is not registered yet, so don't intercept any packet
+	// Just a doubt in case of udp traffic, info_udp is what gets filled.
+	if(!info_v6){
+		return NF_ACCEPT;
+	}
+
+	if(!skb)
+		return NF_ACCEPT;
+
+	// check the interface to listen
+	if((skb->dev == NULL) || (strncmp(skb->dev->name, "br-lan", 4) != 0)){
+		return NF_ACCEPT;
+	}
+
+	if (skb_is_nonlinear(skb)) {
+		int ret = skb_linearize(skb);
+		if (ret < 0) {
+			printk(KERN_ERR "skb_linearize failed: %d\n", ret);
+			return NF_ACCEPT;
+		}
+	}
+
+	eth_h = eth_hdr(skb);
+	if(!eth_h){
+		return NF_ACCEPT;
+	}
+
+	memcpy(mac, eth_h->h_source, ETH_ALEN);
+
+	ip6h = (struct ipv6hdr*)skb_network_header(skb);
+	if(!ip6h){
+		return NF_ACCEPT;
+	}
+
+	// calculate the packet length to send to labrador
+	packet_length = 40 + ntohs(ip6h->payload_len) + ETH_HLEN;
+
+	if (ip6h->nexthdr != IPPROTO_UDP && ip6h->nexthdr != IPPROTO_TCP){
+		return NF_ACCEPT;
+	}
+
+	// don't process the link local ipv6 packets
+	if(is_link_local_ipv6(ip6h->daddr)){
+		printk("link local return\n");
+		return NF_ACCEPT;
+	}
+#if 0
+	// If cloud server IP, then accept the connection.
+	if(is_cloud_server_ip_allowed_list(iph->saddr, iph->daddr)){
+		return NF_ACCEPT;
+	}
+#endif
+	// If apple private mask ips, then drop the connections
+	if(is_apple_priv_block_list_v6(ip6h->saddr, ip6h->daddr)){
+		if(is_apple_priv_browse_mac(mac)){
+			return NF_DROP;
+		}
+	}
+	// clear the fragmented tuple memory
+	// memset(fragTuple_v6, 0, sizeof(struct gry_fragment_tuple_t_v6));
+	// UDP Protocol
+	if(ip6h->nexthdr == IPPROTO_UDP){
+		struct udphdr *udph = NULL;
+		int header = 0;
+
+		if(udp_info_v6 == NULL){
+			return NF_ACCEPT;
+		}
+
+		udph = (struct udphdr*)skb_transport_header(skb);
+		//sizeof ipv6 header is always fixed 40 bytes.
+		//Extension headers if any are part of payload
+		header = 40 + sizeof (struct udphdr);
+		if(!udph){
+			return NF_ACCEPT;
+		}
+		src_port = ntohs(udph->source);
+		dest_port = ntohs(udph->dest);
+
+		//packet should not be intercepted if it is for SSH, DNS, node.js, DHCP server, NTP , SSDP(simple service discovery protocol)
+		if(dest_port == 22 || dest_port == 53 || dest_port == 3000 || dest_port == 67 || dest_port == 123 || dest_port == 1900 || src_port == dest_port){
+			return NF_ACCEPT;
+		}
+
+		// If the device is already paused
+		// NF_DROP all the packets
+		device_paused = labnf_peer_inet_paused_v6(mac, ip6h->daddr, dest_port);
+		if(device_paused == PAUSED){
+			return NF_DROP;
+		}
+
+		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(skb->data + header, ntohs(udph->len))==1)) 
+				|| (isStunFram(skb->data + header, ntohs(udph->len))==1) || (isAUS(skb->data + header, ntohs(udph->len))==1)){
+			// check for safe ip
+			read_lock_bh(&ss_rwlock_v6);
+			for(idx=0; idx<safesearch_count_v6; idx++) {
+				if(!memcmp(&ip6h->daddr, &safesearchIps_6[idx], sizeof(struct in6_addr))) {
+					if(!device_paused){
+						// if safe search ip and device is not paused
+						read_unlock_bh(&ss_rwlock);
+						return NF_ACCEPT;
+					} else {
+						read_unlock_bh(&ss_rwlock);
+						return NF_DROP;
+					}
+				}
+			}
+			read_unlock_bh(&ss_rwlock_v6);
+			/* Check if it is a unsafe IP, and if mac is safe, allow */
+			if(labnf_is_unsafe_ip_v6(ip6h->daddr)) {
+				if(labnf_is_safe_mac(mac)) { // Allow if safe mac packet directly without sending lab
+					return NF_ACCEPT;
+				}
+			}
+
+			/* Check if it is a unsafe IP, and if mac is safe, allow */
+			if(labnf_is_unsafe_youtube_ip_v6(ip6h->daddr)) {
+				if(labnf_is_safe_youtube_mac(mac)){
+					return NF_ACCEPT;
+				}
+			}
+
+			labnf_parse_history(skb, AF_INET6, IPPROTO_UDP, packet_length);
+			return NF_DROP;
+		}
+	}
+
+	// TCP Protocol
+	if(ip6h->nexthdr == IPPROTO_TCP){
+		struct tcphdr *tcph = NULL;
+		bool is_gso = false;
+		uint16_t payload_len = ntohs(ip6h->payload_len);
+		tcph = (struct tcphdr*)skb_transport_header(skb);
+		if(!tcph){
+			return NF_ACCEPT;
+		}
+
+		src_port = ntohs(tcph->source);
+		dest_port = ntohs(tcph->dest);
+		if(dest_port == 22 || dest_port == 53 || dest_port == 3000 || dest_port == 67 || dest_port == 123 || dest_port == 1900 || src_port == dest_port){
+			return NF_ACCEPT;
+		}
+
+		if(is_handshake_packet(tcph) && (40 + payload_len) <= 77){
+			return NF_ACCEPT;
+		}
+
+		if((40 + payload_len) <= (40 + tcph->doff * 4)){
+			return NF_ACCEPT;
+		}
+
+		device_paused = labnf_peer_inet_paused_v6(mac, ip6h->daddr, dest_port);
+		if(device_paused == PAUSED){
+			return NF_DROP;
+		}
+
+		is_gso = skb_is_gso(skb);
+
+		data = skb->data + 40 + tcph->doff * 4;
+
+		canSendResult = can_send_tcp_to_labrador(tcph, dest_port, data, 40 + payload_len);
+
+		// check if the packet is marked as fragmented from application layer
+#if 0            
+		memcpy(&fragTuple_v6->src_addr, &ip6h->saddr, size_ipv6);
+		memcpy(&fragTuple_v6->dst_addr,&ip6h->daddr,size_ipv6);
+		fragTuple_v6->sport = tcph->source;
+		fragTuple_v6->dport = tcph->dest;
+		fragTuple_v6->protocol = 6;
+#endif            
+		if(canSendResult == 2){
+			// This is a client hello, check if its a re-transmission
+			// use the peek_tuple method to confirm if its a re-tramission
+#if 0		   
+			if(gry_rab_peek_tuple_element_v6(fragTuple_v6) == 0){
+				// mark the tuple exists in RAB
+				// as we don't need to save it again in RAB,
+				// and just forward to labrador
+				rabExists = 1;
+				// printk(KERN_INFO "SIZE FOR re-tx ignore %u, %u, %u\n", fragTuple->daddr, ntohs(fragTuple->sport), ntohs(fragTuple->dport));
+			}
+#endif
+		} else if(canSendResult == 0){
+			// This is not client hello, so confirm if the same tuple is
+			// present in the RAB. This is definitely not CLIHLO, so 2nd frame
+#if 0		   
+			if(gry_rab_get_tuple_element_v6(fragTuple_v6) == 0){
+				// tuple found in RAB, send to labrador
+				// printk("SIZE FOR 2nd packet: %u for %u, port[%u],[%u], skb_is_gso[%d], [%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
+				labnf_parse_history(skb, AF_INET6, IPPROTO_TCP, packet_length);
+				return NF_DROP;
+			}
+#endif		    
+		}
+
+		if(canSendResult != 0){
+			read_lock_bh(&ss_rwlock_v6);
+			for(idx=0; idx<safesearch_count_v6; idx++) {
+				if(!memcmp(&ip6h->daddr, &safesearchIps_6[idx], sizeof(struct in6_addr))) {
+					if(!device_paused){
+						// if safe search ip and device is not paused
+						read_unlock_bh(&ss_rwlock);
+						return NF_ACCEPT;
+					} else {
+						read_unlock_bh(&ss_rwlock);
+						return NF_DROP;
+					}
+				}
+			}
+			read_unlock_bh(&ss_rwlock_v6);
+			/* Check if it is a unsafe IP, and if mac is safe, allow */
+			if(labnf_is_unsafe_ip_v6(ip6h->daddr)) {
+				if(labnf_is_safe_mac(mac)) { // Allow if safe mac packet directly without sending lab
+					return NF_ACCEPT;
+				}
+			}
+
+			/* Check if it is a unsafe IP, and if mac is safe, allow */
+			if(labnf_is_unsafe_youtube_ip_v6(ip6h->daddr)) {
+				if(labnf_is_safe_youtube_mac(mac)){
+					return NF_ACCEPT;
+				}
+			}
+
+			// canSendResult 2 means, len greater than 1100 and gso is 1
+			if(canSendResult == 2 && rabExists == 0){
+#if 0			    
+				gry_rab_set_tuple_element_v6(fragTuple_v6);
+				//printk("GRY_RAB_SET: SIZE FOR add RAB: %u for %pI6, port[%u],[%u], gso[%u], gso_len[%u]\n",ntohs(iph->tot_len), &ip6h->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
+#endif			 
+
+			}
+
+			labnf_parse_history(skb, AF_INET6, IPPROTO_TCP, packet_length);
+			return NF_DROP;
+		}
+	}
+	return NF_ACCEPT;
+}
+
 /*
  * @details: Add the fragmented tuple information to RAB
  */
@@ -2412,13 +3065,13 @@ static int fragment_tuple_rab_action(struct sk_buff *skb, struct genl_info *recv
 		pr_err("GRY_DPI_KERN: FRAG_TUPLE_ATTR_NOT_FOUND\n");
 		return -EINVAL;
 	}
-	
+
 	na = recvinfo->attrs[LABPM_ATTR_FRAGMENT_TUPLE];
 	if(nla_len(na) != sizeof(struct gry_fragment_tuple_payload_t)){
 		pr_err("GRY_DPI_KERN: FRAG_TUPLE_ATTR_LEN_ERR\n");
 		return -EINVAL;
 	}
-	
+
 	tuple_payload = (struct gry_fragment_tuple_payload_t*)nla_data(na);
 	pr_info("GRY_DPI_KERN: Recevied Fragment Tuple\n");
 	switch(tuple_payload->cmd){
@@ -2448,6 +3101,13 @@ static int fragment_tuple_rab_action(struct sk_buff *skb, struct genl_info *recv
 
 	return 0;
 }
+
+static struct nf_hook_ops gry_prerouting_hook_ops_v6 = {
+	.hook = gry_prerouting_packet_process_hook_v6,
+	.hooknum = NF_INET_FORWARD,
+	.pf = PF_INET6,
+	.priority = NF_IP6_PRI_FIRST
+};
 
 static struct nf_hook_ops gry_prerouting_hook_ops = {
 	.hook = gry_prerouting_packet_process_hook,
@@ -2482,6 +3142,20 @@ static struct genl_ops labpm_genl_ops[] = {
 #endif
 
 	},
+	{
+		.cmd = LABPM_CMD_INIT_V6,
+		.doit = labnf_set_labpm_portid_v6,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+		.policy = labpm_genl_policy
+#endif
+	},
+	{       
+		.cmd = LABPM_CMD_UDP_INIT_V6,
+		.doit = labnf_set_labpm_udp_portid_v6,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+		.policy = labpm_genl_policy
+#endif
+	},
 #if 0
 	{
 		.cmd = LABPM_CMD_RA_INIT,
@@ -2498,6 +3172,15 @@ static struct genl_ops labpm_genl_ops[] = {
 		.policy = labpm_genl_policy
 #endif
 	},
+#if 0
+	{
+		.cmd = LABPM_CMD_INET_PAUSE_UNPAUSE_V6,
+		.doit = labnf_set_inet_pause_unpause_v6,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+		.policy = labpm_genl_policy
+#endif
+	},
+#endif
 	{
 		.cmd = LABPM_CMD_CLOSE,
 		.doit = labnf_reset_labpm_portid,
@@ -2529,8 +3212,22 @@ static struct genl_ops labpm_genl_ops[] = {
 #endif
 	},
 	{
+		.cmd = LABPM_CMD_SS_IP_V6,
+		.doit = labnf_allow_safesearch_ip_v6,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+		.policy = labpm_genl_policy
+#endif
+	},
+	{
 		.cmd = LABPM_CMD_UNSAFE_IP,
 		.doit = labnf_add_ip_to_unsafe_list,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+		.policy = labpm_genl_policy
+#endif
+	},
+	{
+		.cmd = LABPM_CMD_UNSAFE_IP_V6,
+		.doit = labnf_add_ip_to_unsafe_list_v6,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
@@ -2558,6 +3255,13 @@ static struct genl_ops labpm_genl_ops[] = {
 #endif
 	},
 	{
+		.cmd = LABPM_CMD_MUSIC_IP_V6,
+		.doit = labnf_add_music_ip_list_v6,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,13,0)
+		.policy = labpm_genl_policy
+#endif
+	},
+	{
 		.cmd = LABPM_CMD_FLUSH_TABLE,
 		.doit = labnf_flush_table,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
@@ -2580,6 +3284,13 @@ static struct genl_ops labpm_genl_ops[] = {
 #endif
 	},
 	{
+		.cmd = LABPM_CMD_UNSAFE_YOUTUBE_IP_V6,
+		.doit = add_ip_to_unsafe_youtube_list_v6,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+		.policy = labpm_genl_policy
+#endif
+	},
+	{
 		.cmd = LABPM_CMD_FRAGMENT_TUPLE,
 		.doit = fragment_tuple_rab_action,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
@@ -2592,6 +3303,13 @@ static struct genl_ops labpm_genl_ops[] = {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 		.policy = labpm_genl_policy
 #endif
+	},
+	{
+		.cmd = LABPM_CMD_APPLE_PRIV_V6,
+		.doit = apple_priv_browse_block_list_v6,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+		.policy = labpm_genl_policy
+#endif  
 	},
 	{
 		.cmd = LABPM_CMD_CLOUD_SERVER,
@@ -3062,7 +3780,7 @@ static int __init parental_control_init(void){
 
 	// invoke the timer for RAB
 	gry_rab_timer_invoke();
-	
+
 #if PORTSCAN_ENABLED
 	// initialize the data storage locations
 	init_data_storage();
@@ -3075,6 +3793,7 @@ static int __init parental_control_init(void){
 	pr_info("GRY_DPI_KERN: Parental control module init success\n");
 	for_each_net(n) {
 		nf_register_net_hook(n, &gry_prerouting_hook_ops);
+		nf_register_net_hook(n, &gry_prerouting_hook_ops_v6);
 #if PORTSCAN_ENABLED
 		nf_register_net_hook(n, &gry_portscan_hook_ops);
 #endif
@@ -3109,11 +3828,12 @@ static void __exit parental_control_exit(void){
 	free_data_storage();
 
 	// remove the proc entries
-	 gryphon_destroy_proc_fs();
+	gryphon_destroy_proc_fs();
 #endif
 
 	for_each_net(n){
 		nf_unregister_net_hook(n, &gry_prerouting_hook_ops);
+		nf_unregister_net_hook(n, &gry_prerouting_hook_ops_v6);
 #if PORTSCAN_ENABLED
 		nf_unregister_net_hook(n, &gry_portscan_hook_ops);
 #endif
@@ -3127,9 +3847,19 @@ static void __exit parental_control_exit(void){
 		kfree(udp_info);
 	}
 
+	if(udp_info_v6 != NULL){
+		pr_info("GRY_DPI_KERN: free udp_info_v6\n");
+		kfree(udp_info_v6);
+	}
+
 	if(info != NULL){
 		pr_info("GRY_DPI_KERN: free info\n");
 		kfree(info);
+	}
+
+	if(info_v6 != NULL){
+		pr_info("GRY_DPI_KERN: free info_v6\n");
+		kfree(info_v6);
 	}
 
 	// destroy the timer for RAB

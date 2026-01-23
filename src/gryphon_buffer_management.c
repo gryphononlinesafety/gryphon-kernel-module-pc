@@ -13,14 +13,25 @@
  */
 
 #include <linux/version.h>
+#include <linux/in6.h>
 #include "gryphon_buffer_management.h"
 
 static DEFINE_SPINLOCK(gry_rab_lock);
+static DEFINE_SPINLOCK(gry_rab_lock_v6);
+
 static DEFINE_HASHTABLE(fragment_table, 8);
+static DEFINE_HASHTABLE(fragment_table_v6, 16);
+
+int size_ipv6 = sizeof (struct in6_addr);
+
 static struct timer_list rab_cleanup_timer;
 
 static inline u32 gry_fragment_tuple_calculate_hash(const struct gry_fragment_tuple_t *key){
 	return jhash(key, sizeof(struct gry_fragment_tuple_t), 0);
+}
+
+static inline u32 gry_fragment_tuple_calculate_hash_v6(const struct gry_fragment_tuple_t_v6 *key){
+	return jhash(key, sizeof(struct gry_fragment_tuple_t_v6), 0);
 }
 
 int gry_rab_set_tuple_element(struct gry_fragment_tuple_t *elem) {
@@ -45,6 +56,28 @@ int gry_rab_set_tuple_element(struct gry_fragment_tuple_t *elem) {
 	return 0;
 }
 
+int gry_rab_set_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem) {
+	u32 hash;
+	struct gry_frag_hash_tuple_t_v6 *entry;
+
+	hash = gry_fragment_tuple_calculate_hash_v6(elem);
+	entry = (struct gry_frag_hash_tuple_t_v6*)gry_safe_alloc(sizeof (struct gry_frag_hash_tuple_t_v6));
+	if(!entry){
+		printk(KERN_ERR "GRY_FRAG_HASH_TUPLE_T_V6:NO_MEM\n");
+		return -1;
+	}
+	memcpy(&entry->src_addr, &elem->src_addr, size_ipv6);
+	memcpy(&entry->dst_addr, &elem->dst_addr, size_ipv6);
+	entry->sport = elem->sport;
+	entry->dport = elem->dport;
+	entry->protocol = elem->protocol;
+	entry->timestamp = jiffies;
+	spin_lock_bh(&gry_rab_lock_v6);
+	hash_add(fragment_table_v6, &entry->hnode, hash);
+	spin_unlock_bh(&gry_rab_lock_v6);
+	return 0;
+}
+
 int gry_rab_peek_tuple_element(struct gry_fragment_tuple_t *elem){
 	u32 bkt;
 	struct gry_frag_hash_tuple_t *entry;
@@ -56,6 +89,21 @@ int gry_rab_peek_tuple_element(struct gry_fragment_tuple_t *elem){
 		}
 	}
 	spin_unlock_bh(&gry_rab_lock);
+	return -1;
+}
+
+int gry_rab_peek_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem){
+	u32 bkt;
+	struct gry_frag_hash_tuple_t_v6 *entry;
+	spin_lock_bh(&gry_rab_lock_v6);
+	hash_for_each(fragment_table_v6, bkt, entry, hnode){
+		if(!memcmp(&entry->src_addr, &elem->src_addr, size_ipv6) && !memcmp(&entry->dst_addr, &elem->dst_addr, size_ipv6) && 
+				(entry->sport == elem->sport) && (entry->dport == elem->dport) && (entry->protocol == elem->protocol)){
+			spin_unlock_bh(&gry_rab_lock_v6);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&gry_rab_lock_v6);
 	return -1;
 }
 
@@ -76,6 +124,24 @@ int gry_rab_get_tuple_element(struct gry_fragment_tuple_t *elem) {
 	return -1;
 }
 
+int gry_rab_get_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem) {
+	u32 bkt;
+	struct gry_frag_hash_tuple_t_v6 *entry;
+	struct hlist_node *tmp;
+	spin_lock_bh(&gry_rab_lock_v6);
+	hash_for_each_safe(fragment_table_v6, bkt, tmp, entry, hnode){
+		if(!memcmp(&entry->src_addr, &elem->src_addr, size_ipv6) && !memcmp(&entry->dst_addr, &elem->dst_addr, size_ipv6) && 
+				(entry->sport == elem->sport) && (entry->dport == elem->dport) && (entry->protocol == elem->protocol)){
+			hash_del(&entry->hnode);
+			kfree(entry);
+			spin_unlock_bh(&gry_rab_lock_v6);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&gry_rab_lock_v6);
+	return -1;
+}
+
 int gry_rab_print_tuple_elements() {
 	u32 bkt;
 	struct gry_frag_hash_tuple_t *entry;
@@ -84,6 +150,17 @@ int gry_rab_print_tuple_elements() {
 		pr_info("GRY_RAB_TUPLE: %u %u %u %u %u\n", entry->saddr, entry->daddr, entry->sport, entry->dport, entry->protocol);
 	}
 	spin_unlock_bh(&gry_rab_lock);
+	return 0;
+}
+
+int gry_rab_print_tuple_elements_v6(){
+	u32 bkt;
+	struct gry_frag_hash_tuple_t_v6 *entry;
+	spin_lock_bh(&gry_rab_lock_v6);
+	hash_for_each(fragment_table_v6, bkt, entry, hnode){
+		pr_info("GRY_RAB_TUPLE_V6: %pI6 %pI6, %u, %u, %u\n", &entry->src_addr, &entry->dst_addr, entry->sport, entry->dport, entry->protocol);
+	}
+	spin_unlock_bh(&gry_rab_lock_v6);
 	return 0;
 }
 
@@ -97,6 +174,19 @@ int gry_rab_clear_tuple_elements() {
 		kfree(entry);
 	}
 	spin_unlock_bh(&gry_rab_lock);
+	return 0;
+}
+
+int gry_rab_clear_tuple_elements_v6(){
+	u32 bkt;
+	struct gry_frag_hash_tuple_t_v6 *entry;
+	struct hlist_node *tmp;
+	spin_lock_bh(&gry_rab_lock_v6);
+	hash_for_each_safe(fragment_table_v6, bkt, tmp, entry, hnode){
+		hash_del(&entry->hnode);
+		kfree(entry);
+	}
+	spin_unlock_bh(&gry_rab_lock_v6);
 	return 0;
 }
 
@@ -117,9 +207,28 @@ int gry_rab_del_tuple_element(struct gry_fragment_tuple_t *elem) {
 	return -1;
 }
 
+int gry_rab_del_tuple_element_v6(struct gry_fragment_tuple_t_v6 *elem){
+	u32 bkt;
+	struct gry_frag_hash_tuple_t_v6 *entry;
+	struct hlist_node *tmp;
+	spin_lock_bh(&gry_rab_lock_v6);
+	hash_for_each_safe(fragment_table_v6, bkt, tmp, entry, hnode){
+		if(!memcmp(&entry->src_addr, &elem->src_addr, size_ipv6) && !memcmp(&entry->dst_addr, &elem->dst_addr, size_ipv6) && 
+				(entry->sport == elem->sport) && (entry->dport == elem->dport) && (entry->protocol == elem->protocol)){
+			hash_del(&entry->hnode);
+			kfree(entry);
+			spin_unlock_bh(&gry_rab_lock_v6);
+			return 0;
+		}
+	}
+	spin_unlock_bh(&gry_rab_lock_v6);
+	return -1;
+}
+
 void gry_rab_cleanup_timer_exec(struct timer_list *t){
 	u32 bkt;
 	struct gry_frag_hash_tuple_t *entry;
+	struct gry_frag_hash_tuple_t_v6 *entry_v6;
 	struct hlist_node *tmp;
 	int count = 0, del_count = 0;
 	spin_lock_bh(&gry_rab_lock);
@@ -133,6 +242,20 @@ void gry_rab_cleanup_timer_exec(struct timer_list *t){
 	}
 	spin_unlock_bh(&gry_rab_lock);
 	pr_debug("GRY_RAB_TIMER_TRIGGER: [%d] [%d]\n", count, del_count);
+
+	count = 0;
+	del_count = 0;
+	spin_lock_bh(&gry_rab_lock_v6);
+	hash_for_each_safe(fragment_table_v6, bkt, tmp, entry_v6, hnode){
+		if(jiffies - entry_v6->timestamp > msecs_to_jiffies(RAB_TIMER_INTERVAL * 1000)){
+			hash_del(&entry_v6->hnode);
+			kfree(entry_v6);
+			del_count++;
+		}
+		count++;
+	}
+	spin_unlock_bh(&gry_rab_lock_v6);
+	pr_debug("GRY_RAB_TIMER_TRIGGER_V6: [%d] [%d]\n", count, del_count);
 	// trigger the timer again
 	mod_timer(&rab_cleanup_timer, jiffies + msecs_to_jiffies(RAB_TIMER_INTERVAL * 1000));
 }
