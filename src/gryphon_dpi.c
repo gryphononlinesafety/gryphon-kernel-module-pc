@@ -159,6 +159,7 @@ static DEFINE_SPINLOCK(gry_lock);
 
 // RW LOCKS
 static rwlock_t genl_rwlock = __RW_LOCK_UNLOCKED(genl_rwlock);
+static rwlock_t vpn_rwlock = __RW_LOCK_UNLOCKED(vpn_rwlock);
 static rwlock_t ss_rwlock = __RW_LOCK_UNLOCKED(ss_rwlock);
 static rwlock_t ss_rwlock_v6 = __RW_LOCK_UNLOCKED(ss_rwlock_v6);
 
@@ -174,6 +175,13 @@ typedef struct labnf_pack {
 	char if_name[16];
 	unsigned int gso_length;
 } labnf_pack;
+
+typedef struct {
+    int len;
+    unsigned char databuff[ETH_FRAME_LEN];
+    char if_name[16];
+} vpnnf_pack;
+
 
 typedef struct musicappiplist_t {
 	int ipcount;
@@ -253,6 +261,11 @@ typedef struct {
 	struct hlist_node hnode;
 } apple_priv_mac_;
 
+typedef struct {
+        unsigned char mac[ETH_ALEN];
+        struct hlist_node hnode;
+} vpn_mac_;
+
 enum {
 	LABPM_ATTR_UNSPEC,
 	LABPM_ATTR_DNAT,
@@ -272,6 +285,7 @@ enum {
 	LABPM_ATTR_APPLE_PRIV_MAC,
 	LABPM_ATTR_CLOUD_SERVER,
 	LABPM_ATTR_DNAT_V6,
+	LABPM_ATTR_MAC,
 	__LABPM_ATTR_MAX,
 };
 #define LABPM_ATTR_MAX (__LABPM_ATTR_MAX + 1)
@@ -313,6 +327,24 @@ enum labpm_cmd{
 	LABPM_CMD_MAX
 };
 
+enum vpn_cmd {
+        VPN_CMD_UNSPEC,
+        VPN_CMD_INIT,
+        VPN_CMD_PACKETS,
+        VPN_CMD_CLOSE,
+        VPN_CMD_VPNDETECT_IP,
+        __VPN_CMD_MAX,
+};
+
+enum vpn_attr {
+        VPN_ATTR_UNSPEC,
+        VPN_ATTR_MSG,
+        VPN_ATTR_INIT,
+        VPN_ATTR_PACKETS,
+        VPN_ATTR_CLOSE,
+       __VPN_ATTR_MAX,
+};
+#define VPN_ATTR_MAX (__VPN_ATTR_MAX + 1)
 
 static struct nla_policy labpm_genl_policy[__LABPM_ATTR_MAX + 1]  = {
 	[LABPM_ATTR_DNAT] = {.type = NLA_NUL_STRING},
@@ -330,9 +362,14 @@ static struct nla_policy labpm_genl_policy[__LABPM_ATTR_MAX + 1]  = {
 	[LABPM_ATTR_FRAGMENT_TUPLE] = {.len = sizeof(struct gry_fragment_tuple_payload_t)},
 	[LABPM_ATTR_APPLE_PRIV] = {.type = NLA_U32},
 	[LABPM_ATTR_CLOUD_SERVER] = {.type = NLA_U32},
-	[LABPM_ATTR_APPLE_PRIV_MAC] = {.len = sizeof(apple_priv_mac_t)},
+	[LABPM_ATTR_APPLE_PRIV_MAC] = {.type = NLA_BINARY, .len = sizeof(apple_priv_mac_t)},
 	[LABPM_ATTR_DNAT_V6] = {.type = NLA_BINARY, .len = sizeof(struct in6_addr)}
 };
+
+static struct nla_policy vpn_genl_policy[__VPN_ATTR_MAX + 1] = {
+         [VPN_ATTR_PACKETS]={.type = NLA_UNSPEC, .len = sizeof(vpnnf_pack)},
+};
+
 
 // create the labpm_genl_family structure
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
@@ -360,12 +397,28 @@ static struct genl_family gry_ra_genl_family = {
 };
 #endif
 
+// create the vpn_genl_family structure
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,13,0)
+static struct genl_family vpn_genl_family;
+#else
+static struct genl_family vpn_genl_family = {
+        .id = 0,
+        .hdrsize = 0,
+        .name = "VPN_PACKET_TF",
+        .version = 1,
+        .maxattr = VPN_ATTR_MAX,
+};
+#endif
+
 
 struct genl_info *info = NULL;
 struct genl_info *info_v6 = NULL;
 
 struct genl_info *udp_info = NULL;
 struct genl_info *udp_info_v6 = NULL;
+
+struct genl_info *vpn_info=NULL;
+
 #if 0
 struct genl_info *ra_info = NULL;
 #endif
@@ -443,12 +496,6 @@ struct normal_port_scan_t {
 	struct normal_port_scan_data_t *nodes;
 };
 
-typedef struct {
-	int len;
-	char databuff[ETH_FRAME_LEN];
-	char if_name[16];
-} vpnnf_pack;
-
 // variable to store the tcp normal scan data
 struct normal_port_scan_t tcp_normal_scan;
 // variable to store the copy of tcp_normal_scan data
@@ -467,6 +514,8 @@ bool is_gso_capable;
 int can_send_udp_to_labrador(unsigned char*, int);
 int isAUS(unsigned char *,int);
 int isStunFram(unsigned char *,int);
+static int is_apple_priv_browse_mac(char *mac);
+
 
 #if PORTSCAN_ENABLED
 
@@ -682,6 +731,28 @@ static inline int quic_draft_version(u32 version)
 		return 46;
 	}
 	return 0;
+}
+
+// Function responsible for storing the userspace application id for VPN_PACKET_TF 
+// into the kernel space for communication
+static int vpnnf_set_vpn_portid(struct sk_buff *skb, struct genl_info *info_recv){
+        pr_info("GRY_DPI_KERN: vpnnf_set_vpn_portid: init done\n");
+        write_lock_bh(&vpn_rwlock);
+	if(vpn_info != NULL){
+                pr_info("GRY_DPI_KERN: vpnnf_set_vpn_portid: info-exist free\n");
+                kfree(vpn_info);
+        }
+        vpn_info = gry_safe_alloc(sizeof(struct genl_info));
+        if(!vpn_info){
+                write_unlock_bh(&vpn_rwlock);
+		pr_err("GRY_DPI_KERN: Failed to allocate genl_info, vpnnf_set_vpn_portid\n");
+                return 0;
+        }
+        memset(vpn_info, 0, sizeof(struct genl_info));
+        memcpy(vpn_info, info_recv, sizeof(struct genl_info));
+        write_unlock_bh(&vpn_rwlock);
+	pr_info("GRY_DPI_KERN: allocated genl_info vpnnf_set_vpn_portid\n");
+        return 0;
 }
 
 // Function responsible for storing the userspace application id for LABPM_DNAT
@@ -921,6 +992,17 @@ static int labnf_flush_table(struct sk_buff *skb, struct genl_info *info_rcv) {
 	//}
 	return 0;    
 }
+// Function responsible for clearing up the userspace application id - VPN_PACKET_TF 
+static int vpnnf_reset_vpn_portid(struct sk_buff *skb, struct genl_info *info_recv){
+        write_lock_bh(&vpn_rwlock);
+        if(vpn_info != NULL){
+                kfree(vpn_info);
+                vpn_info = NULL;
+                pr_info("GRY_DPI_KERN: nl_close_done \n");
+        }
+        write_unlock_bh(&vpn_rwlock);
+        return 0;
+}
 
 // Function responsible for clearing up the userspace application id - LABPM_DNAT
 static int labnf_reset_labpm_portid(struct sk_buff *skb, struct genl_info *info_recv){
@@ -1002,9 +1084,6 @@ static int labnf_allow_safesearch_ip_v6(struct sk_buff *skb, struct genl_info *i
 
 	return 0;
 }
-
-
-
 
 // Function responsible for adding or removing the mac address to safe search list
 static int labnf_add_del_mac_to_safe_list(struct sk_buff *skb, struct genl_info *info_recv){
@@ -1830,6 +1909,126 @@ static inline int labnf_is_safe_youtube_mac(char *mac) {
 	return 0;
 }
 
+/*
+static int vpnnf_is_vpn_allowed(char *mac)
+{
+	if(is_apple_priv_browse_mac(mac)){
+		return 0;
+	}
+        return 1;
+}
+*/
+#define VPNNF_PACKET_LEN 1
+#define VPNNF_IFNAME 2
+#define VPNNF_BUFFER 3
+
+static int vpnnf_send_packet(struct sk_buff *skb, int len, char *dev_name, unsigned int gso_length, uint8_t protocol){
+        struct sk_buff *msg;
+        void *hdr;
+        struct genl_info temp_info = {0};
+        int cmd = VPN_CMD_PACKETS;
+        int result = 0;
+	unsigned char *data_ptr = NULL;
+        unsigned int data_len = 0;
+
+        read_lock_bh(&vpn_rwlock);
+        if(vpn_info == NULL){
+		read_unlock_bh(&vpn_rwlock);
+                return -1;
+        }
+
+        if((protocol == IPPROTO_TCP)||(protocol==IPPROTO_UDP)){
+                memcpy(&temp_info, vpn_info, sizeof(struct genl_info));
+		
+        } else {
+                // Incorrect protocol
+                read_unlock_bh(&vpn_rwlock);
+                return -1;
+        }
+        read_unlock_bh(&vpn_rwlock);
+        
+        if(!skb_mac_header_was_set(skb)){
+                pr_debug("GRY_DPI_KERN: MAC header not set, using network header\n");
+                /* Use network header (IP) instead */
+                data_ptr = skb_network_header(skb);
+                data_len = skb->len;
+        } else {
+                data_ptr = skb_mac_header(skb);
+                /* Calculate actual available length from MAC header */
+                data_len = skb->len + (skb_network_header(skb) - skb_mac_header(skb));
+        }
+
+        /* Validate the requested length */
+        if(len > data_len){
+                pr_warn("GRY_DPI_KERN: Requested len %d exceeds available %u, truncating\n", len, data_len);
+                len = data_len;
+        }
+
+        /* Ensure SKB is linearized - critical for accessing packet data */
+        if(skb_is_nonlinear(skb)){
+                if(skb_linearize(skb)){
+                        pr_err("GRY_DPI_KERN: Failed to linearize SKB\n");
+                        return -1;
+                }
+                /* Recalculate pointers after linearization */
+                if(!skb_mac_header_was_set(skb)){
+                        data_ptr = skb_network_header(skb);
+                } else {
+                        data_ptr = skb_mac_header(skb);
+                }
+        }
+
+        /* Additional bounds check */
+        if(data_ptr < skb->head || data_ptr + len > skb_tail_pointer(skb)){
+                pr_err("GRY_DPI_KERN: Invalid buffer bounds: ptr=%p len=%d head=%p tail=%p\n",
+                       data_ptr, len, skb->head, skb_tail_pointer(skb));
+                return -1;
+        }
+	
+        msg = nlmsg_new(NLMSG_GOODSIZE, gry_get_memory_alloc_type());
+        if(!msg){
+                return -1;
+        }
+
+        hdr = genlmsg_put(msg, temp_info.snd_portid, 0, &vpn_genl_family, 0, cmd);
+        if(!hdr){
+                nlmsg_free(msg);
+                return -1;
+        }
+
+  /*      if (nla_put(msg, VPN_ATTR_PACKETS, sizeof(pkt), &pkt)) {
+          genlmsg_cancel(msg, hdr);
+          nlmsg_free(msg);
+          return -1;
+        }*/
+        
+	// Add the interface name from sk_buff
+        if(nla_put_string(msg, VPNNF_IFNAME, dev_name)){
+                genlmsg_cancel(msg, hdr);
+                nlmsg_free(msg);
+                return -1;
+        }
+
+     
+
+        // Add the packet buffer in binary format
+        if(nla_put(msg, VPNNF_BUFFER, len, data_ptr)){
+                genlmsg_cancel(msg, hdr);
+                nlmsg_free(msg);
+                return -1;
+        }
+
+
+        genlmsg_end(msg, hdr);
+        result = genlmsg_unicast(genl_info_net(&temp_info), msg, temp_info.snd_portid);
+        if(result == -EAGAIN){
+                return -1;
+        }
+        return 0;
+}
+
+
+
 // NETLINK MSG ATTRIBUTES FOR SENDING THE PACKET INFORMATION TO APPLICATION LAYER
 // THIS IS FOR DYNAMIC MTU SIZES
 #define LABNF_PACKET_LEN 1
@@ -1997,6 +2196,17 @@ static unsigned int gry_skb_gso_network_seglen(struct sk_buff *skb){
 	}
 #endif
 	return hdr_len + thlen + shinfo->gso_size;
+}
+
+static void vpnnf_parse_history(struct sk_buff *skb, uint8_t protocol){
+	int pack_len = 0;
+	struct iphdr *iph;
+	iph = (struct iphdr*)skb_network_header(skb);
+	pack_len = ntohs(iph->tot_len) + ETH_HLEN;
+
+	if(vpnnf_send_packet(skb, pack_len, skb->dev->name, 0, protocol) < 0){
+		pr_debug("GRY_DPI_KERN: VPN packet send failed: [%u]\n", protocol);
+	}
 }
 
 static void labnf_parse_history(struct sk_buff *skb, int domain, uint8_t protocol, int pack_len){
@@ -2384,7 +2594,7 @@ static int apple_priv_browse_mac_list(struct sk_buff *skb, struct genl_info *inf
 		pr_err("GRY_DPI_KERN: GRY_APPLE_PRIV: invalid data of struct apple_priv_mac\n");
 		return -1;
 	}
-	pr_debug("GRY_DPI_KERN: GRY_APPLE_PRIV: MAC RECV: %pM6, %d\n", apple_priv_mac->mac, apple_priv_mac->action);
+	pr_info("GRY_DPI_KERN: GRY_APPLE_PRIV: MAC RECV: %pM6, %d\n", apple_priv_mac->mac, apple_priv_mac->action);
 	if(apple_priv_mac->action == ADD_RULE){
 		u32 bkt;
 		apple_priv_mac_ *peer;
@@ -2439,6 +2649,65 @@ static void gry_mark_skb(struct sk_buff *skb){
 	skb->mark = GRY_MARK_VALUE;
 }
 #endif
+
+static unsigned int vpn_pc_hook(void *priv, struct sk_buff *skb, const struct nf_hook_state *state){
+
+	struct ethhdr *eth_h = NULL;
+	struct iphdr *iph = NULL;
+	//	char smac[ETH_ALEN] = {0};
+	//	char dmac[ETH_ALEN] = {0};
+
+	if(!skb)
+	{
+		return NF_ACCEPT;
+	}       
+	// check the interface to listen
+	if(skb->dev == NULL){
+		return NF_ACCEPT;
+	}
+
+	read_lock_bh(&vpn_rwlock);
+	if(!vpn_info){
+		read_unlock_bh(&vpn_rwlock);
+		return NF_ACCEPT;
+	}
+	read_unlock_bh(&vpn_rwlock);
+
+	/* Linearize SKB early if needed - ensures all packet data access is safe */
+	if(skb_is_nonlinear(skb)){
+		if(skb_linearize(skb)){
+			pr_debug("GRY_DPI_KERN: Failed to linearize SKB\n");
+			return NF_ACCEPT;
+		}
+	}
+
+	eth_h = eth_hdr(skb);
+	if(!eth_h){
+		return NF_ACCEPT;
+	}
+
+	iph = (struct iphdr*)skb_network_header(skb);
+
+	// CRITICAL FIX: Validate IP header properly to prevent out-of-bounds access
+	if(skb->len < sizeof(struct iphdr)){
+		return NF_ACCEPT;
+	}
+
+	if(iph->version != 4){
+		return NF_ACCEPT;
+	}
+
+	if(iph->ihl < 5){
+		return NF_ACCEPT;
+	}
+
+	if (iph->protocol != IPPROTO_UDP && iph->protocol != IPPROTO_TCP){
+		return NF_ACCEPT;
+	}
+
+	vpnnf_parse_history(skb, iph->protocol); 
+	return NF_ACCEPT;
+}
 
 static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buff *skb, const struct nf_hook_state *state){
 	struct ethhdr *eth_h = NULL;
@@ -3123,6 +3392,29 @@ static struct nf_hook_ops gry_portscan_hook_ops = {
 };
 #endif
 
+static struct nf_hook_ops vpn_pc_hook_ops = {
+	.hook = vpn_pc_hook,
+        .hooknum = NF_INET_FORWARD,
+        .pf = PF_INET,
+        .priority = NF_IP_PRI_FIRST + 1
+};
+static struct genl_ops vpn_genl_ops[]={
+       {  
+                .cmd = VPN_CMD_INIT,
+                .doit = vpnnf_set_vpn_portid,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+                .policy = vpn_genl_policy
+#endif
+        },
+        {  
+                .cmd = VPN_CMD_CLOSE,
+                .doit = vpnnf_reset_vpn_portid,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
+                .policy = vpn_genl_policy
+#endif
+        },
+
+};
 // structure containing the generic netlink operations
 static struct genl_ops labpm_genl_ops[] = {
 	{
@@ -3365,6 +3657,28 @@ static int gry_register_tc_genl_family(void){
 	result = genl_register_family_with_ops(&gry_ra_genl_family, labpm_genl_ops);
 #endif
 	return result;
+}
+
+// function to register vpn_genl_family along with vpn_genl_ops
+static int gry_register_vpn_genl_family(void){
+        int result = 0;
+        memset(&vpn_genl_family, 0, sizeof(struct genl_family));
+        vpn_genl_family.id = 0;
+        vpn_genl_family.hdrsize = 0;
+        strncpy(vpn_genl_family.name, "VPN_PACKET_TF", strlen("VPN_PACKET_TF"));
+        vpn_genl_family.version = 1;
+        vpn_genl_family.maxattr = VPN_ATTR_MAX;
+        vpn_genl_family.ops = vpn_genl_ops;
+        vpn_genl_family.n_ops = sizeof(vpn_genl_ops) / sizeof(vpn_genl_ops[0]);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,164)
+        vpn_genl_family.policy = vpn_genl_policy;
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
+        result = genl_register_family(&vpn_genl_family);
+#else
+        result = genl_register_family_with_ops(&vpn_genl_family, vpn_genl_ops);
+#endif
+        return result;
 }
 
 #if PORTSCAN_ENABLED
@@ -3795,6 +4109,7 @@ static int __init parental_control_init(void){
 #if PORTSCAN_ENABLED
 		nf_register_net_hook(n, &gry_portscan_hook_ops);
 #endif
+                nf_register_net_hook(n, &vpn_pc_hook_ops);
 	}
 	pr_info("GRY_DPI_KERN: hook register success\n");
 
@@ -3807,6 +4122,10 @@ static int __init parental_control_init(void){
 		pr_err("GRY_DPI_KERN: tc_genl_family failed\n");
 		goto cleanup;
 	}
+        if(gry_register_vpn_genl_family() < 0){
+                pr_err("GRY_DPI_KERN: vpn_genl_family failed\n");
+                goto cleanup;
+        }
 
 	if(ret_val){
 		pr_err("GRY_DPI_KERN: failed to register genl\n");
@@ -3835,10 +4154,13 @@ static void __exit parental_control_exit(void){
 #if PORTSCAN_ENABLED
 		nf_unregister_net_hook(n, &gry_portscan_hook_ops);
 #endif
+		nf_unregister_net_hook(n, &vpn_pc_hook_ops);
 	}
 	genl_unregister_family(&labpm_genl_family);
 
 	genl_unregister_family(&gry_ra_genl_family);
+
+	genl_unregister_family(&vpn_genl_family);
 
 	if(udp_info != NULL){
 		pr_info("GRY_DPI_KERN: free udp_info\n");
@@ -3859,6 +4181,12 @@ static void __exit parental_control_exit(void){
 		pr_info("GRY_DPI_KERN: free info_v6\n");
 		kfree(info_v6);
 	}
+
+	if(vpn_info != NULL){
+                pr_info("GRY_DPI_KERN: free vpn_info\n");
+                kfree(vpn_info);
+        }
+
 
 	// destroy the timer for RAB
 	gry_rab_timer_destroy();
