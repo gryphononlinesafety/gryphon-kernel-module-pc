@@ -3090,6 +3090,9 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 	if(!skb)
 		return NF_ACCEPT;
 
+	if (skb->mark == 0x9)
+		return NF_ACCEPT;
+
 	// check the interface to listen
 	if((skb->dev == NULL) || (strncmp(skb->dev->name, "br-lan", 4) != 0)){
 		return NF_ACCEPT;
