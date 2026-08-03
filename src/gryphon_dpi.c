@@ -41,7 +41,7 @@
 #include <net/netfilter/nf_conntrack_core.h>
 #include "gryphon_buffer_management.h"
 
-#define GRY_MODULE_VERSION "01.0001.16"
+#define GRY_MODULE_VERSION "01.0001.17"
 
 #define PORTSCAN_ENABLED 1
 #define GRYPHON_DEBUG_ENABLED 0
