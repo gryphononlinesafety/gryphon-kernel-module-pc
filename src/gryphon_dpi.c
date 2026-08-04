@@ -2730,6 +2730,9 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 		return NF_ACCEPT;
 	}
 
+	if (skb->mark == 0x9)
+		return NF_ACCEPT;
+
 	// check the interface to listen
 	if((skb->dev == NULL) || (strncmp(skb->dev->name, "br-", 3) != 0)){
 #ifdef ENABLE_GRY_MARK
