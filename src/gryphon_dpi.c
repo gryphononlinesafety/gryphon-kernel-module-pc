@@ -529,6 +529,7 @@ ssize_t portscan_devices_read(struct file *, char *, size_t, loff_t *);
 ssize_t portscan_devices_write(struct file *, const char *, size_t, loff_t *);
 ssize_t portscan_verbose_read(struct file *, char *, size_t, loff_t *);
 ssize_t portscan_verbose_write(struct file *, const char *, size_t , loff_t *);
+int is_link_local_ipv6(struct in6_addr addr_v6);
 
 // Initialize the data storage nodes and memset them to 0
 void init_data_storage(void){
