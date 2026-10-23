@@ -36,6 +36,7 @@
 #include <net/genetlink.h>
 #include <linux/proc_fs.h>
 #include <linux/string.h>
+#include <linux/ctype.h>
 #include <linux/hashtable.h>
 #include <net/netfilter/nf_conntrack.h>
 #include <net/netfilter/nf_conntrack_core.h>
@@ -1617,7 +1618,7 @@ static inline int is_whatsapp_chatd_prefix(const char *data, int len)
 	if(is_whatsapp_chatd_magic(p))
 		return 1;
 	for(i = 0; i < 8 && (i + 6) <= len; i++){
-		if(p[i] >= '0' && p[i] <= '9')
+		if(isxdigit(p[i]))
 			continue;
 		if(i > 0 && p[i] == '\r' && p[i + 1] == '\n' &&
 				is_whatsapp_chatd_magic(p + i + 2))
@@ -1627,9 +1628,29 @@ static inline int is_whatsapp_chatd_prefix(const char *data, int len)
 	return 0;
 }
 
+/* First Noise frame of a chatd login: 3-byte length, HandshakeMessage.clientHello, 32-byte
+ * ephemeral key. On port 80 it comes in its own chunk after the ED/WA segments, and labrador
+ * needs it to tell Messenger from WhatsApp. */
+static inline int is_chatd_client_hello(const char *data, int len)
+{
+	const unsigned char *p = (const unsigned char *)data;
+	int i = 0, o;
+
+	while(i < 8 && i < len && isxdigit(p[i]))
+		i++;
+	if(i > 0 && i + 1 < len && p[i] == '\r' && p[i + 1] == '\n'){
+		p += i + 2;
+		len -= i + 2;
+	}
+	if(len < 8 || p[0] != 0x00 || p[3] != 0x12)
+		return 0;
+	o = (p[4] & 0x80) ? 6 : 5;
+	return p[o] == 0x0a && p[o + 1] == 0x20;
+}
+
 static int is_app_tcp_pattern(const char *data, int len)
 {
-	return is_whatsapp_chatd_prefix(data, len);
+	return is_whatsapp_chatd_prefix(data, len) || is_chatd_client_hello(data, len);
 }
 
 static int can_send_tcp_to_labrador(struct tcphdr *tcph, uint16_t dest_port, char *data, int len, int payload_len){
