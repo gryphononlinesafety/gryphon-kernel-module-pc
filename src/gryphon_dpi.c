@@ -512,7 +512,7 @@ bool is_gso_capable;
 #endif
 
 int can_send_udp_to_labrador(unsigned char*, int);
-int isAUS(unsigned char *,int);
+int is_app_udp_pattern(unsigned char *,int);
 int isStunFram(unsigned char *,int);
 static int is_apple_priv_browse_mac(char *mac);
 
@@ -1599,7 +1599,44 @@ static int is_handshake_packet(struct tcphdr *tcph){
 	return 0;
 }
 
-static int can_send_tcp_to_labrador(struct tcphdr *tcph, uint16_t dest_port, char *data, int len){
+static inline int is_whatsapp_chatd_magic(const unsigned char *data)
+{
+	return ((data[0] == 0x45 && data[1] == 0x44 && data[2] == 0x00 && data[3] == 0x01) ||
+		(data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x04 && data[3] == 0x08) ||
+		(data[0] == 0x57 && data[1] == 0x41 && data[2] == 0x06 && data[3] == 0x03));
+}
+
+/* Raw chatd, or HTTP-length framed: "162\r\nED\x00\x01..." (port 80 fallback). */
+static inline int is_whatsapp_chatd_prefix(const char *data, int len)
+{
+	const unsigned char *p = (const unsigned char *)data;
+	int i;
+
+	if(len < 4)
+		return 0;
+	if(is_whatsapp_chatd_magic(p))
+		return 1;
+	for(i = 0; i < 8 && (i + 6) <= len; i++){
+		if(p[i] >= '0' && p[i] <= '9')
+			continue;
+		if(i > 0 && p[i] == '\r' && p[i + 1] == '\n' &&
+				is_whatsapp_chatd_magic(p + i + 2))
+			return 1;
+		break;
+	}
+	return 0;
+}
+
+static int is_app_tcp_pattern(const char *data, int len)
+{
+	return is_whatsapp_chatd_prefix(data, len);
+}
+
+static int can_send_tcp_to_labrador(struct tcphdr *tcph, uint16_t dest_port, char *data, int len, int payload_len){
+	/* WhatsApp chatd/Noise prefixes are 4 bytes; check before TLS (data[5]). */
+	if(payload_len >= 4 && is_app_tcp_pattern(data, payload_len)){
+		return 1;
+	}
 	if(dest_port == 80 && !memcmp(data, HTTP_GET, HTTP_GET_LEN)){
 		// HTTP GET
 		return 1;
@@ -1617,10 +1654,9 @@ static int can_send_tcp_to_labrador(struct tcphdr *tcph, uint16_t dest_port, cha
 			// XMPP SSL Kik app
 			return 2;
 		}
-	} else if ((tcph->psh == 1) && (((data[0] == 0x45) && (data[1] == 0x44) && (data[2] == 0x00) && (data[3] == 0x01)) ||
-				((data[0] == 0x00) && (data[1] == 0x00) && (data[2] == 0x04) && (data[3] == 0x08)) ||
-				((data[0] == 0x50) && (data[1] == 0x4f) && (data[2] == 0x53) && (data[3] == 0x54) && (data[4] == 0x20) && (data[5] == 0x2f)))){
-		// Whatsapp messages
+	} else if ((tcph->psh == 1) && (dest_port == 80) &&
+			((data[0] == 0x50) && (data[1] == 0x4f) && (data[2] == 0x53) && (data[3] == 0x54) && (data[4] == 0x20) && (data[5] == 0x2f))){
+		// HTTP POST
 		return 1;
 	} else if(dest_port == 443 && data[0] == 0x14){
 		int oth_len = LEN_NTOHS(data);
@@ -2287,15 +2323,23 @@ int can_send_udp_to_labrador(unsigned char *data,int len)
 	return 0;
 }
 
-int isAUS(unsigned char *data,int len) {
-	if(len < 4)
+int is_app_udp_pattern(unsigned char *data, int len)
+{
+	if(data == NULL || len < 4)
 		return 0;
-	if((data[0] == 0x08) && (data[1]==0x00) && (data[2]==0x00) && (data[3]==0x00)){
+
+	/* Among Us */
+	if((data[0] == 0x08) && (data[1] == 0x00) && (data[2] == 0x00) && (data[3] == 0x00))
 		return 1;
-	}
+
+	/* Roblox */
+	if(len >= 6 &&
+	   (data[0] == 0x01) && (data[1] == 0x00) && (data[2] == 0x00) &&
+	   (data[3] == 0x1f) && (data[4] == 0x01) && (data[5] == 0x11))
+		return 1;
+
 	return 0;
 }
-
 
 int isStunFram(unsigned char *stun,int captured_length) {
 
@@ -2837,7 +2881,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_DROP;
 		}
 
-		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(udp_payload, udp_payload_length)==1)) || (isStunFram(udp_payload, udp_payload_length)==1) || (isAUS(udp_payload, udp_payload_length)==1)){
+		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(udp_payload, udp_payload_length)==1)) || (isStunFram(udp_payload, udp_payload_length)==1) || (is_app_udp_pattern(udp_payload, udp_payload_length)==1)){
 			// check for safe ip
 			read_lock_bh(&ss_rwlock);	
 			for(idx=0;idx<safesearch_count;idx++) {
@@ -2930,12 +2974,26 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_ACCEPT;
 		}
 
-		/* Quick check: if packet too small, skip inspection */
-		if(ntohs(iph->tot_len) <= (iph->ihl * 4 + tcph->doff * 4 + 6)){
+		/* Quick check: if packet too small, skip inspection.
+		 * Default needs 7+ payload bytes (TLS ClientHello peeks data[5]).
+		 * WhatsApp chatd is a 4-byte prefix (ED / WA 6.3) on 5222/5223 and on 443.
+		 */
+		{
+			unsigned int hdr = iph->ihl * 4 + tcph->doff * 4;
+			unsigned int tot = ntohs(iph->tot_len);
+			unsigned int plen = (tot > hdr) ? (tot - hdr) : 0;
+			unsigned int min_payload = 7;
+			if(dest_port == 5222 || dest_port == 5223)
+				min_payload = 4;
+			else if((dest_port == 443 || dest_port == 80) && plen >= 4 &&
+					is_whatsapp_chatd_prefix((char *)(skb->data + hdr), plen))
+				min_payload = 4;
+			if(tot < (hdr + min_payload)){
 #ifdef ENABLE_GRY_MARK
-			gry_mark_skb(skb);
+				gry_mark_skb(skb);
 #endif
-			return NF_ACCEPT;
+				return NF_ACCEPT;
+			}
 		}
 
 		// Check the pause flag here
@@ -2949,7 +3007,12 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 #endif
 
 		data = (char *)tcph + tcph->doff * 4;
-		canSendResult = can_send_tcp_to_labrador(tcph, dest_port, data, ntohs(iph->tot_len));
+		{
+			int payload_len = (int)ntohs(iph->tot_len) - (int)(iph->ihl * 4 + tcph->doff * 4);
+			if(payload_len < 0)
+				payload_len = 0;
+			canSendResult = can_send_tcp_to_labrador(tcph, dest_port, data, ntohs(iph->tot_len), payload_len);
+		}
 		//printk("data0: %02X, %02X 5[%02X]for %u", data[0], data[1], data[5], ntohs(tcph->source));
 		// check if the packet is marked as fragmented from application layer
 		fragTuple.saddr = iph->saddr;
@@ -3180,7 +3243,8 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 		}
 
 		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(skb->data + header, ntohs(udph->len))==1)) 
-				|| (isStunFram(skb->data + header, ntohs(udph->len))==1) || (isAUS(skb->data + header, ntohs(udph->len))==1)){
+				|| (isStunFram(skb->data + header, ntohs(udph->len))==1)
+				|| (is_app_udp_pattern(skb->data + header, ntohs(udph->len))==1)){
 			// check for safe ip
 			read_lock_bh(&ss_rwlock_v6);
 			for(idx=0; idx<safesearch_count_v6; idx++) {
@@ -3248,7 +3312,12 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 
 		data = skb->data + 40 + tcph->doff * 4;
 
-		canSendResult = can_send_tcp_to_labrador(tcph, dest_port, data, 40 + payload_len);
+		{
+			int tcp_payload = (int)payload_len - (int)(tcph->doff * 4);
+			if(tcp_payload < 0)
+				tcp_payload = 0;
+			canSendResult = can_send_tcp_to_labrador(tcph, dest_port, data, 40 + payload_len, tcp_payload);
+		}
 
 		// check if the packet is marked as fragmented from application layer
 #if 0            
