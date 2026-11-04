@@ -2912,7 +2912,7 @@ static unsigned int gry_prerouting_packet_process_hook(void *priv, struct sk_buf
 			return NF_DROP;
 		}
 
-		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(udp_payload, udp_payload_length)==1)) || (isStunFram(udp_payload, udp_payload_length)==1) || (is_app_udp_pattern(udp_payload, udp_payload_length)==1)){
+		if((can_send_udp_to_labrador(udp_payload, udp_payload_length)==1) || (isStunFram(udp_payload, udp_payload_length)==1) || (is_app_udp_pattern(udp_payload, udp_payload_length)==1)){
 			// check for safe ip
 			read_lock_bh(&ss_rwlock);	
 			for(idx=0;idx<safesearch_count;idx++) {
@@ -3272,7 +3272,7 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 			return NF_DROP;
 		}
 
-		if(((ntohs(udph->dest) == 443) && (can_send_udp_to_labrador(skb->data + header, ntohs(udph->len))==1)) 
+		if((can_send_udp_to_labrador(skb->data + header, ntohs(udph->len))==1) 
 				|| (isStunFram(skb->data + header, ntohs(udph->len))==1)
 				|| (is_app_udp_pattern(skb->data + header, ntohs(udph->len))==1)){
 			// check for safe ip
