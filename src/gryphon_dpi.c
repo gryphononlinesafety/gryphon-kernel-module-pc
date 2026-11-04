@@ -2267,16 +2267,26 @@ static void vpnnf_parse_history(struct sk_buff *skb, uint8_t protocol){
 	}
 }
 
+/* GRO merged back-to-back UDP datagrams of a flow into this skb (fraglist or UDP GRO), e.g. a QUIC client's two
+ * Initials: their payloads follow one IP/UDP header whose lengths cover all of them. */
+static bool gry_skb_is_udp_gso(struct sk_buff *skb){
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,1)
+	return skb_is_gso(skb) && (skb_shinfo(skb)->gso_type & SKB_GSO_UDP_L4);
+#else
+	return false;
+#endif
+}
+
 static void labnf_parse_history(struct sk_buff *skb, int domain, uint8_t protocol, int pack_len){
-	if(protocol == IPPROTO_TCP && skb_is_gso(skb) == 1){
-		// call GSO functions only if the protocol is TCP
+	if((protocol == IPPROTO_TCP && skb_is_gso(skb) == 1) || (protocol == IPPROTO_UDP && gry_skb_is_udp_gso(skb))){
+		// pass the size of each original packet, so labrador sends them as they were (not one merged packet)
 		if(labnf_send_packet(skb, domain, protocol, pack_len, gry_skb_gso_network_seglen(skb)) < 0){
 			if(labnf_send_packet(skb, domain, protocol, pack_len, gry_skb_gso_network_seglen(skb)) < 0){
 				pr_debug("GRY_DPI_KERN: NETLINK_ERROR_RE_TX: [%u]\n", protocol);
 			}
 		}
 	} else {
-		// GSO functions are ignored in UDP Protocol or non GSO packets
+		// non GSO packets
 		if(labnf_send_packet(skb, domain, protocol, pack_len, 0) < 0){
 			if(labnf_send_packet(skb, domain, protocol, pack_len, 0) < 0){
 				pr_debug("GRY_DPI_KERN: NETLINK_ERROR_RE_TX: [%u]\n", protocol);
