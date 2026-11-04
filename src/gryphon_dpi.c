@@ -3168,6 +3168,7 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 	u32 idx;
 	int rabExists = 0;
 	int packet_length = 0;
+	struct gry_fragment_tuple_t_v6 fragTuple_v6 = {0};
 
 	// Labrador is not registered yet, so don't intercept any packet
 	// Just a doubt in case of udp traffic, info_udp is what gets filled.
@@ -3230,8 +3231,6 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 			return NF_DROP;
 		}
 	}
-	// clear the fragmented tuple memory
-	// memset(fragTuple_v6, 0, sizeof(struct gry_fragment_tuple_t_v6));
 	// UDP Protocol
 	if(ip6h->nexthdr == IPPROTO_UDP){
 		struct udphdr *udph = NULL;
@@ -3341,36 +3340,28 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 		}
 
 		// check if the packet is marked as fragmented from application layer
-#if 0            
-		memcpy(&fragTuple_v6->src_addr, &ip6h->saddr, size_ipv6);
-		memcpy(&fragTuple_v6->dst_addr,&ip6h->daddr,size_ipv6);
-		fragTuple_v6->sport = tcph->source;
-		fragTuple_v6->dport = tcph->dest;
-		fragTuple_v6->protocol = 6;
-#endif            
+		fragTuple_v6.src_addr = ip6h->saddr;
+		fragTuple_v6.dst_addr = ip6h->daddr;
+		fragTuple_v6.sport = tcph->source;
+		fragTuple_v6.dport = tcph->dest;
+		fragTuple_v6.protocol = 6;
 		if(canSendResult == 2){
 			// This is a client hello, check if its a re-transmission
 			// use the peek_tuple method to confirm if its a re-tramission
-#if 0		   
-			if(gry_rab_peek_tuple_element_v6(fragTuple_v6) == 0){
+			if(gry_rab_peek_tuple_element_v6(&fragTuple_v6) == 0){
 				// mark the tuple exists in RAB
 				// as we don't need to save it again in RAB,
 				// and just forward to labrador
 				rabExists = 1;
-				// printk(KERN_INFO "SIZE FOR re-tx ignore %u, %u, %u\n", fragTuple->daddr, ntohs(fragTuple->sport), ntohs(fragTuple->dport));
 			}
-#endif
 		} else if(canSendResult == 0){
 			// This is not client hello, so confirm if the same tuple is
 			// present in the RAB. This is definitely not CLIHLO, so 2nd frame
-#if 0		   
-			if(gry_rab_get_tuple_element_v6(fragTuple_v6) == 0){
+			if(gry_rab_get_tuple_element_v6(&fragTuple_v6) == 0){
 				// tuple found in RAB, send to labrador
-				// printk("SIZE FOR 2nd packet: %u for %u, port[%u],[%u], skb_is_gso[%d], [%u]\n",ntohs(iph->tot_len), iph->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
 				labnf_parse_history(skb, AF_INET6, IPPROTO_TCP, packet_length);
 				return NF_DROP;
 			}
-#endif		    
 		}
 
 		if(canSendResult != 0){
@@ -3404,11 +3395,7 @@ static unsigned int gry_prerouting_packet_process_hook_v6(void *priv, struct sk_
 
 			// canSendResult 2 means, len greater than 1100 and gso is 1
 			if(canSendResult == 2 && rabExists == 0){
-#if 0			    
-				gry_rab_set_tuple_element_v6(fragTuple_v6);
-				//printk("GRY_RAB_SET: SIZE FOR add RAB: %u for %pI6, port[%u],[%u], gso[%u], gso_len[%u]\n",ntohs(iph->tot_len), &ip6h->daddr, ntohs(tcph->source), ntohs(tcph->dest), is_gso, gry_skb_gso_network_seglen(skb));
-#endif			 
-
+				gry_rab_set_tuple_element_v6(&fragTuple_v6);
 			}
 
 			labnf_parse_history(skb, AF_INET6, IPPROTO_TCP, packet_length);
